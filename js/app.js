@@ -97,14 +97,9 @@ const App = (() => {
     // Init scroll shadow
     initScrollShadow();
 
-    // Firebase cloud sync initialization
-    if (typeof FirebaseSync !== 'undefined') {
-      const hasPIN = FirebaseSync.init();
-      if (!hasPIN) {
-        // No PIN saved - show PIN entry screen
-        FirebaseSync.showPinScreen();
-        return; // Don't navigate yet, wait for PIN
-      }
+    // Request permanent local storage permission (prevents automatic browser deletion)
+    if (typeof Storage !== 'undefined' && Storage.requestPersistStorage) {
+      Storage.requestPersistStorage();
     }
 
     // Initial route

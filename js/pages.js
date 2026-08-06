@@ -905,36 +905,13 @@ const Pages = (() => {
           </div>
         </div>
 
-        <!-- Cloud Sync Settings -->
-        ${typeof FirebaseSync !== 'undefined' ? (() => {
-          const syncInfo = FirebaseSync.getSyncInfo();
-          const syncTime = syncInfo.lastSyncTime ? new Date(syncInfo.lastSyncTime).toLocaleString('ko-KR') : '없음';
-          return `
+        <!-- Permanent Local Storage Status -->
         <div class="settings-section">
-          <div class="card" style="border:1px solid rgba(74,123,247,0.2);">
-            <h2 class="settings-section__title">☁️ 클라우드 동기화</h2>
-            <p class="settings-section__description">PIN 코드 기반 클라우드 저장소로 데이터를 자동 백업합니다. 브라우저 데이터가 삭제되어도 PIN만 기억하면 복원됩니다.</p>
-
-            <div class="sync-status-card">
-              <div class="sync-status-card__icon">${syncInfo.isConnected ? '🟢' : '🔴'}</div>
-              <div class="sync-status-card__info">
-                <div class="sync-status-card__title">${syncInfo.isConnected ? '클라우드 연결됨' : '연결 안 됨'}</div>
-                <div class="sync-status-card__detail" id="sync-status-text">마지막 동기화: ${syncTime}</div>
-              </div>
-            </div>
-
-            <div class="settings-actions">
-              ${syncInfo.isConnected ? `
-                <button class="btn btn--primary btn--sm" id="btn-force-sync">🔄 수동 동기화</button>
-                <button class="btn btn--danger btn--sm" id="btn-disconnect-cloud">🔌 연결 해제</button>
-              ` : `
-                <button class="btn btn--primary btn--sm" id="btn-connect-cloud">☁️ 클라우드 연결</button>
-              `}
-            </div>
+          <div class="card" style="border:1px solid rgba(16,185,129,0.2); background: rgba(16,185,129,0.03);">
+            <h2 class="settings-section__title">🔒 100% 로컬 영구 보관 보호</h2>
+            <p class="settings-section__description">어떠한 데이터(영수증, 지출내역, API키)도 외부 서버로 단 1Byte도 전송되지 않습니다.<br>브라우저 영구 보관 보호 모드가 적용되어 장기간 미접속하더라도 데이터가 자동 삭제되지 않도록 안전하게 유지됩니다.</p>
           </div>
         </div>
-          `;
-        })() : ''}
 
         <!-- AI Recognition Settings -->
         <div class="settings-section">
@@ -1197,41 +1174,6 @@ const Pages = (() => {
       });
     }
 
-    // === Cloud Sync Buttons ===
-    const btnForceSync = document.getElementById('btn-force-sync');
-    if (btnForceSync) {
-      btnForceSync.addEventListener('click', async () => {
-        btnForceSync.disabled = true;
-        btnForceSync.textContent = '🔄 동기화 중...';
-        const result = await FirebaseSync.forceSync();
-        if (result.success) {
-          App.showToast('☁️ 클라우드 동기화 완료!', 'success');
-          FirebaseSync.updateSyncStatusUI();
-        } else {
-          App.showToast(`동기화 실패: ${result.error}`, 'error');
-        }
-        btnForceSync.disabled = false;
-        btnForceSync.textContent = '🔄 수동 동기화';
-      });
-    }
-
-    const btnDisconnect = document.getElementById('btn-disconnect-cloud');
-    if (btnDisconnect) {
-      btnDisconnect.addEventListener('click', () => {
-        if (confirm('클라우드 연결을 해제하시겠습니까?\n로컬 데이터는 유지되지만 자동 백업이 중단됩니다.')) {
-          FirebaseSync.disconnect();
-          App.showToast('클라우드 연결이 해제되었습니다.', 'warning');
-          App.navigate('#/settings');
-        }
-      });
-    }
-
-    const btnConnect = document.getElementById('btn-connect-cloud');
-    if (btnConnect) {
-      btnConnect.addEventListener('click', () => {
-        FirebaseSync.showPinScreen();
-      });
-    }
   }
 
   return {

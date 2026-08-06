@@ -49,7 +49,6 @@ const Storage = (() => {
     receipt.createdAt = new Date().toISOString();
     receipts.unshift(receipt);
     saveReceipts(receipts);
-    if (typeof FirebaseSync !== 'undefined') FirebaseSync.scheduleSyncToCloud();
     return receipt;
   }
 
@@ -59,7 +58,6 @@ const Storage = (() => {
     if (idx !== -1) {
       receipts[idx] = { ...receipts[idx], ...updates, updatedAt: new Date().toISOString() };
       saveReceipts(receipts);
-      if (typeof FirebaseSync !== 'undefined') FirebaseSync.scheduleSyncToCloud();
       return receipts[idx];
     }
     return null;
@@ -68,7 +66,6 @@ const Storage = (() => {
   function deleteReceipt(id) {
     const receipts = getReceipts().filter(r => r.id !== id);
     saveReceipts(receipts);
-    if (typeof FirebaseSync !== 'undefined') FirebaseSync.scheduleSyncToCloud();
   }
 
   function getReceiptById(id) {
@@ -87,7 +84,6 @@ const Storage = (() => {
 
   function saveSettings(settings) {
     localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
-    if (typeof FirebaseSync !== 'undefined') FirebaseSync.scheduleSyncToCloud();
   }
 
   // --- Statistics ---
@@ -137,7 +133,6 @@ const Storage = (() => {
       const data = JSON.parse(jsonString);
       if (data.settings) saveSettings(data.settings);
       if (data.receipts) saveReceipts(data.receipts);
-      if (typeof FirebaseSync !== 'undefined') FirebaseSync.scheduleSyncToCloud();
       return { success: true, count: (data.receipts || []).length };
     } catch (e) {
       return { success: false, error: e.message };
@@ -147,7 +142,20 @@ const Storage = (() => {
   function clearAll() {
     localStorage.removeItem(KEYS.RECEIPTS);
     localStorage.removeItem(KEYS.SETTINGS);
-    if (typeof FirebaseSync !== 'undefined') FirebaseSync.scheduleSyncToCloud();
+  }
+
+  // --- Permanent Storage Request ---
+  async function requestPersistStorage() {
+    if (navigator.storage && navigator.storage.persist) {
+      try {
+        const isPersisted = await navigator.storage.persist();
+        console.log(`[Storage] Permanent storage persistence: ${isPersisted ? 'Active' : 'Default'}`);
+        return isPersisted;
+      } catch (e) {
+        console.warn('[Storage] Could not request persistence:', e);
+      }
+    }
+    return false;
   }
 
   return {
@@ -163,5 +171,6 @@ const Storage = (() => {
     exportData,
     importData,
     clearAll,
+    requestPersistStorage,
   };
 })();
