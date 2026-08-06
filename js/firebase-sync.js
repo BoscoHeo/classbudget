@@ -5,12 +5,12 @@
 const FirebaseSync = (function() {
     // Firebase Configuration
     const firebaseConfig = {
-        apiKey: "AIzaSyAwFuZOKUUOYujJNxDFUYnFdVvX2rZoJms",
-        authDomain: "gen-lang-client-0745529210.firebaseapp.com",
-        projectId: "gen-lang-client-0745529210",
-        storageBucket: "gen-lang-client-0745529210.firebasestorage.app",
-        messagingSenderId: "826005372857",
-        appId: "1:826005372857:web:7c650ea4a5b7a4f3204068"
+        apiKey: "AIzaSyBr-8m2OI_WNVdWzFn4Pwjo7ZG4Ul-VBbM",
+        authDomain: "classbudget-31df5.firebaseapp.com",
+        projectId: "classbudget-31df5",
+        storageBucket: "classbudget-31df5.firebasestorage.app",
+        messagingSenderId: "645436560495",
+        appId: "1:645436560495:web:a9030382af88cc9810a99a"
     };
 
     let db = null;
