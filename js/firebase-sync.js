@@ -239,20 +239,19 @@ const FirebaseSync = (function() {
                         const docSnap = await docRef.get();
 
                         if (docSnap.exists) {
-                            showError('이미 사용 중인 PIN입니다. 다른 PIN을 입력하거나 [접속]을 클릭하세요.');
+                            currentPinHash = hash;
+                            localStorage.setItem(PIN_HASH_KEY, currentPinHash);
+                            await syncFromCloud();
+                            hidePinScreen();
+                            showToast('클라우드 데이터와 동기화되었습니다.');
+                            if (window.App && App.navigate) App.navigate('#/');
                         } else {
                             currentPinHash = hash;
                             localStorage.setItem(PIN_HASH_KEY, currentPinHash);
-                            
-                            // 현재 로컬 데이터를 클라우드로 동기화 (새 문서 생성)
                             await syncToCloud();
-                            
                             hidePinScreen();
-                            showToast('새 클라우드 동기화가 생성되었습니다.');
-                            
-                            if (window.App && App.navigate) {
-                                App.navigate('#/');
-                            }
+                            showToast('새 클라우드 공간이 생성되었습니다.');
+                            if (window.App && App.navigate) App.navigate('#/');
                         }
                     } catch (error) {
                         console.error('데이터 생성 오류:', error);
