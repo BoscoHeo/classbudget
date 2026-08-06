@@ -119,6 +119,7 @@ const FirebaseSync = (function() {
 
             if (savedPinHash) {
                 currentPinHash = savedPinHash;
+                hidePinScreen();
                 syncFromCloud(); // 비동기 호출 (결과 기다리지 않음)
                 return true;
             }
@@ -139,14 +140,13 @@ const FirebaseSync = (function() {
         
         overlay.style.display = 'flex';
         overlay.style.opacity = '1';
+        overlay.style.pointerEvents = 'auto';
         hideError();
 
-        // 약간의 딜레이 후 이벤트 바인딩 및 포커스
-        setTimeout(() => {
-            const input = document.getElementById('pin-input');
-            const btnAccess = document.getElementById('btn-pin-access');
-            const btnCreate = document.getElementById('btn-pin-create');
-            const btnSkip = document.getElementById('btn-pin-skip');
+        const input = document.getElementById('pin-input');
+        const btnAccess = document.getElementById('btn-pin-access');
+        const btnCreate = document.getElementById('btn-pin-create');
+        const btnSkip = document.getElementById('btn-pin-skip');
 
             if (input) {
                 input.value = '';
@@ -271,8 +271,6 @@ const FirebaseSync = (function() {
                     showToast('오프라인 모드로 시작합니다.');
                 };
             }
-            
-        }, 100);
     }
 
     /**
