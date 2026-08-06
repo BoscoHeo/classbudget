@@ -196,7 +196,14 @@ const FirebaseSync = (function() {
                                 App.navigate('#/');
                             }
                         } else {
-                            showError('해당 PIN으로 저장된 데이터가 없습니다. 새로 생성하려면 [생성]을 클릭하세요.');
+                            if (confirm(`PIN [${pin}]으로 저장된 클라우드 데이터가 없습니다.\n지금 이 PIN으로 새 클라우드 공간을 생성하시겠습니까?`)) {
+                                currentPinHash = hash;
+                                localStorage.setItem(PIN_HASH_KEY, currentPinHash);
+                                await syncToCloud();
+                                hidePinScreen();
+                                showToast('새 클라우드 공간이 생성되었습니다.');
+                                if (window.App && App.navigate) App.navigate('#/');
+                            }
                         }
                     } catch (error) {
                         console.error('데이터 접근 오류:', error);
@@ -276,12 +283,9 @@ const FirebaseSync = (function() {
         const overlay = document.getElementById('pin-overlay');
         if (!overlay) return;
         
-        overlay.style.pointerEvents = 'none';
         overlay.style.opacity = '0';
-        setTimeout(() => {
-            overlay.style.display = 'none';
-            overlay.style.pointerEvents = 'auto';
-        }, 300);
+        overlay.style.display = 'none';
+        overlay.style.pointerEvents = 'auto';
     }
 
     /**
