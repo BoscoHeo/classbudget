@@ -163,7 +163,7 @@ const FirebaseSync = (function() {
 
             if (btnAccess) {
                 btnAccess.onclick = async function() {
-                    const pin = input ? input.value : '';
+                    const pin = input ? input.value.trim() : '';
                     if (!validatePin(pin)) {
                         showError('PIN 번호는 4~8자리의 영문 또는 숫자여야 합니다.');
                         return;
@@ -212,7 +212,7 @@ const FirebaseSync = (function() {
 
             if (btnCreate) {
                 btnCreate.onclick = async function() {
-                    const pin = input ? input.value : '';
+                    const pin = input ? input.value.trim() : '';
                     if (!validatePin(pin)) {
                         showError('PIN 번호는 4~8자리의 영문 또는 숫자여야 합니다.');
                         return;
@@ -276,9 +276,11 @@ const FirebaseSync = (function() {
         const overlay = document.getElementById('pin-overlay');
         if (!overlay) return;
         
+        overlay.style.pointerEvents = 'none';
         overlay.style.opacity = '0';
         setTimeout(() => {
             overlay.style.display = 'none';
+            overlay.style.pointerEvents = 'auto';
         }, 300);
     }
 
