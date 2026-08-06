@@ -200,7 +200,8 @@ const FirebaseSync = (function() {
                         }
                     } catch (error) {
                         console.error('데이터 접근 오류:', error);
-                        showError('데이터에 접근하는 중 오류가 발생했습니다.');
+                        const msg = error && error.message ? error.message : '데이터에 접근하는 중 오류가 발생했습니다.';
+                        showError('오류: ' + msg);
                     } finally {
                         btnAccess.disabled = false;
                         if (btnCreate) btnCreate.disabled = false;
@@ -248,7 +249,8 @@ const FirebaseSync = (function() {
                         }
                     } catch (error) {
                         console.error('데이터 생성 오류:', error);
-                        showError('데이터를 생성하는 중 오류가 발생했습니다.');
+                        const msg = error && error.message ? error.message : '데이터를 생성하는 중 오류가 발생했습니다.';
+                        showError('오류: ' + msg);
                     } finally {
                         if (btnAccess) btnAccess.disabled = false;
                         btnCreate.disabled = false;
