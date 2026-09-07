@@ -115,9 +115,11 @@ const ExcelExport = (() => {
   }
 
   /**
-   * Generate K-에듀파인 정산양식 XLS file
-   * Columns: 사용일자, 사용업체명, 사용금액, 구입구분, 사용내역
-   * Sheet name: 정산양식
+   * K-에듀파인 개산급 정산 등록용 공식 XLSX 엑셀 파일 생성
+   * - 에듀파인 필수 시트명: '정산내역'
+   * - 에듀파인 필수 컬럼명: ['사용일자', '사용업체명', '사용금액', '증빙구분', '사용내역']
+   * - 증빙구분: 쪽지 및 지침에 따른 '카드' 고정
+   * - 사용금액: 콤마 없는 순수 숫자(Number) 타입
    */
   function downloadEdufineXLS() {
     const receipts = Storage.getReceipts();
@@ -126,8 +128,44 @@ const ExcelExport = (() => {
     }
 
     const sorted = [...receipts].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+    const filename = `정산내역_${dateStr}.xlsx`;
 
-    // Build HTML table that Excel can open as .xls
+    // 1. SheetJS(XLSX) 라이브러리가 로드된 경우: 에듀파인이 100% 인식하는 진짜 XLSX 파일 생성
+    if (typeof XLSX !== 'undefined') {
+      const headers = ['사용일자', '사용업체명', '사용금액', '증빙구분', '사용내역'];
+      const rows = sorted.map(r => {
+        const date = formatDate(r.date);
+        const store = r.store || '';
+        const amount = Number(r.amount) || 0;
+        const proofType = '카드'; // 개산급 정산 시 카드 결제 기본값
+        const memo = r.memo ? ` (${r.memo})` : '';
+        const item = `${r.item || ''}${memo}`;
+        return [date, store, amount, proofType, item];
+      });
+
+      const worksheetData = [headers, ...rows];
+      const ws = XLSX.utils.aoa_to_sheet(worksheetData);
+
+      // 열 너비 자동 설정 (가독성 향상)
+      ws['!cols'] = [
+        { wch: 14 }, // 사용일자
+        { wch: 22 }, // 사용업체명
+        { wch: 12 }, // 사용금액
+        { wch: 10 }, // 증빙구분
+        { wch: 35 }  // 사용내역
+      ];
+
+      const wb = XLSX.utils.book_new();
+      // K-에듀파인 필수 시트 이름: '정산내역'
+      XLSX.utils.book_append_sheet(wb, ws, '정산내역');
+
+      XLSX.writeFile(wb, filename);
+      return { success: true, count: receipts.length };
+    }
+
+    // 2. 대체 로직(SheetJS 미로드 환경): 에듀파인 규격에 맞춘 HTML XLS 생성
     let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
 <head>
 <meta charset="UTF-8">
@@ -136,7 +174,7 @@ const ExcelExport = (() => {
 <x:ExcelWorkbook>
 <x:ExcelWorksheets>
 <x:ExcelWorksheet>
-<x:Name>정산양식</x:Name>
+<x:Name>정산내역</x:Name>
 <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
 </x:ExcelWorksheet>
 </x:ExcelWorksheets>
@@ -145,7 +183,7 @@ const ExcelExport = (() => {
 <![endif]-->
 <style>
   td, th { mso-number-format:"\\@"; }
-  .num { mso-number-format:"#,##0"; }
+  .num { mso-number-format:"0"; }
 </style>
 </head>
 <body>
@@ -155,7 +193,7 @@ const ExcelExport = (() => {
 <th>사용일자</th>
 <th>사용업체명</th>
 <th>사용금액</th>
-<th>구입구분</th>
+<th>증빙구분</th>
 <th>사용내역</th>
 </tr>
 </thead>
@@ -165,7 +203,7 @@ const ExcelExport = (() => {
       const date = formatDate(r.date);
       const store = (r.store || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const amount = Number(r.amount) || 0;
-      const category = getCategoryName(r.category);
+      const proofType = '카드';
       const item = (r.item || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const memo = r.memo ? ` (${r.memo.replace(/</g, '&lt;').replace(/>/g, '&gt;')})` : '';
 
@@ -174,7 +212,7 @@ const ExcelExport = (() => {
 <td>${date}</td>
 <td>${store}</td>
 <td class="num">${amount}</td>
-<td>${category}</td>
+<td>${proofType}</td>
 <td>${item}${memo}</td>
 </tr>`;
     });
@@ -189,8 +227,6 @@ const ExcelExport = (() => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const now = new Date();
-    const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
     a.download = `정산내역_${dateStr}.xls`;
     document.body.appendChild(a);
     a.click();
