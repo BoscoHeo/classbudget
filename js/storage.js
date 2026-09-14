@@ -118,26 +118,44 @@ const Storage = (() => {
   }
 
   // --- Import/Export ---
-  function exportData() {
+function exportData() {
+    const settings = getSettings();
+    const { geminiApiKey, ...safeSettings } = settings;
+
     const data = {
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      settings: getSettings(),
-      receipts: getReceipts(),
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        settings: safeSettings,
+        receipts: getReceipts(),
     };
     return JSON.stringify(data, null, 2);
-  }
+}
 
-  function importData(jsonString) {
+function importData(jsonString) {
     try {
-      const data = JSON.parse(jsonString);
-      if (data.settings) saveSettings(data.settings);
-      if (data.receipts) saveReceipts(data.receipts);
-      return { success: true, count: (data.receipts || []).length };
+        const data = JSON.parse(jsonString);
+
+        if (data.settings) {
+            const currentSettings = getSettings();
+            const { geminiApiKey, ...importedSettings } = data.settings;
+
+            saveSettings({
+                ...currentSettings,
+                ...importedSettings,
+                geminiApiKey: currentSettings.geminiApiKey || '',
+            });
+        }
+
+        if (data.receipts) saveReceipts(data.receipts);
+
+        return {
+            success: true,
+            count: (data.receipts || []).length
+        };
     } catch (e) {
-      return { success: false, error: e.message };
+        return { success: false, error: e.message };
     }
-  }
+}
 
   function clearAll() {
     localStorage.removeItem(KEYS.RECEIPTS);
