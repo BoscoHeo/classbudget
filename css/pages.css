@@ -516,3 +516,71 @@
     flex-direction: column;
   }
 }
+
+/* Bosco page refinements */
+.dashboard-welcome {
+  padding: 26px 32px;
+  margin-bottom: 20px;
+  background: #eaf4ff;
+  border: 1px solid #d5e7fa;
+}
+.dashboard-welcome::before { background: #dceeff; opacity: .55; }
+.dashboard-welcome__title { color: #071c46; }
+.budget-overview { padding: 22px 24px; margin-bottom: 20px; }
+.budget-overview__amount { color: #10264a; }
+.progress-bar { background: #e8f0f9; }
+.progress-bar__fill--blue { background: var(--color-primary); }
+.recent-section, .category-chart-section { margin-top: 20px; }
+.dashboard-grid { gap: 20px; }
+.recent-item:hover { box-shadow: none; background: #f8fbff; }
+
+.add-receipt-form { max-width: 760px; }
+.add-receipt-form .card { padding: 26px; }
+.add-receipt-header {
+  text-align: left;
+  margin-bottom: 20px;
+  display: grid;
+  grid-template-columns: 50px 1fr;
+  column-gap: 14px;
+  align-items: center;
+}
+.add-receipt-header__icon {
+  width: 50px;
+  height: 50px;
+  margin: 0;
+  grid-row: 1 / 3;
+  background: #e5f1ff;
+  border-radius: 13px;
+  font-size: 1.45rem;
+}
+.add-receipt-header__title { color: #0b2348; }
+.add-receipt-header__sub { margin-top: 0; }
+.upload-dropzone { padding: 34px 24px; background: #f7fbff; border-color: #b8cee5; }
+.upload-dropzone:hover { background: #eef7ff; border-color: var(--color-primary); }
+.upload-dropzone--active { background: #eaf4ff; }
+.upload-dropzone--analyzing { border-color: var(--color-primary); }
+.add-receipt-actions { margin-top: 22px; }
+
+.settings-section { margin-bottom: 18px; }
+.settings-section .card { padding: 22px 24px; }
+.settings-section__title { color: #10264a; }
+.settings-section__description { margin-bottom: 18px; }
+.settings-info { background: #f1f7fe; border-color: #dceafb; }
+
+.pin-overlay { background: #eaf4ff; }
+.pin-card { border: 1px solid #d5e5f5; box-shadow: 0 18px 48px rgba(20,65,120,.16); }
+.pin-card__title { background: none; color: #10264a; -webkit-text-fill-color: currentColor; }
+
+@media (max-width: 768px) {
+  .dashboard-welcome { padding: 20px; }
+  .add-receipt-form .card, .settings-section .card { padding: 18px; }
+  .add-receipt-header { grid-template-columns: 44px 1fr; }
+  .add-receipt-header__icon { width: 44px; height: 44px; }
+  .add-receipt-actions { align-items: stretch; }
+}
+
+@media (max-width: 480px) {
+  .dashboard-welcome { padding: 18px; }
+  .dashboard-welcome__title { font-size: 1.35rem; }
+  .budget-overview { padding: 18px; }
+}

@@ -908,8 +908,8 @@ const Pages = (() => {
         <!-- Permanent Local Storage Status -->
         <div class="settings-section">
           <div class="card" style="border:1px solid rgba(16,185,129,0.2); background: rgba(16,185,129,0.03);">
-            <h2 class="settings-section__title">🔒 100% 로컬 영구 보관 보호</h2>
-            <p class="settings-section__description">어떠한 데이터(영수증, 지출내역, API키)도 외부 서버로 단 1Byte도 전송되지 않습니다.<br>브라우저 영구 보관 보호 모드가 적용되어 장기간 미접속하더라도 데이터가 자동 삭제되지 않도록 안전하게 유지됩니다.</p>
+            <h2 class="settings-section__title">🔒 로컬 데이터 보관 안내</h2>
+            <p class="settings-section__description">영수증 및 지출내역은 기본적으로 이 브라우저에 저장됩니다. AI 영수증 인식 기능을 사용할 경우 선택한 영수증 데이터가 Google Gemini API로 전송됩니다.<br>브라우저 영구 보관 보호 모드가 적용되어 장기간 미접속하더라도 데이터가 자동 삭제되지 않도록 안전하게 유지됩니다.</p>
           </div>
         </div>
 
@@ -922,7 +922,7 @@ const Pages = (() => {
             <div class="form-group">
               <label class="form-label" for="setting-gemini-key">Gemini API Key</label>
               <input type="password" id="setting-gemini-key" class="form-input" placeholder="AIzaSy..." value="${settings.geminiApiKey || ''}">
-              <p class="form-hint">💡 <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--color-primary);text-decoration:underline;">Google AI Studio</a>에서 무료로 API 키를 발급받을 수 있습니다. 키는 브라우저에만 저장되며 외부로 전송되지 않습니다.</p>
+              <p class="form-hint">💡 <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--color-primary);text-decoration:underline;">Google AI Studio</a>에서 무료로 API 키를 발급받을 수 있습니다. API 키는 이 브라우저에 저장되며, AI 영수증 인식 기능 사용 시 Gemini API 요청에 사용됩니다..</p>
             </div>
 
             <div style="display:flex;gap:var(--space-sm);align-items:center;">

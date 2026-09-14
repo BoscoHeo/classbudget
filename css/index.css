@@ -82,6 +82,40 @@
   --max-width: 1200px;
 }
 
+/* Bosco portal visual system */
+:root {
+  --color-primary: #1677ed;
+  --color-primary-light: #5ea4f5;
+  --color-primary-dark: #0b56b5;
+  --color-secondary: #635bce;
+  --color-bg: #f3f8fe;
+  --color-surface-hover: #f7fbff;
+  --color-border: #cfddec;
+  --color-border-light: #e2ecf7;
+  --color-text: #10264a;
+  --color-text-secondary: #58708f;
+  --gradient-primary: #1677ed;
+  --gradient-hero: #eaf4ff;
+  --gradient-card: #f8fbff;
+  --gradient-button: #1677ed;
+  --gradient-button-hover: #0b65d4;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --shadow-sm: 0 1px 2px rgba(20, 65, 120, .05);
+  --shadow-md: 0 6px 18px rgba(20, 65, 120, .08);
+  --shadow-lg: 0 12px 28px rgba(20, 65, 120, .10);
+  --shadow-xl: 0 20px 44px rgba(20, 65, 120, .14);
+  --shadow-card: 0 2px 8px rgba(20, 65, 120, .045);
+  --nav-height: 68px;
+  --max-width: 1240px;
+}
+
+.nav__link:focus-visible, button:focus-visible, a:focus-visible {
+  outline: 3px solid rgba(22, 119, 237, .22);
+  outline-offset: 2px;
+}
+
 /* === Reset & Base === */
 *, *::before, *::after {
   margin: 0;
@@ -289,4 +323,28 @@ table {
     padding-left: var(--space-md);
     padding-right: var(--space-md);
   }
+}
+
+/* Navigation cascade overrides */
+.nav { background: rgba(255, 255, 255, .96); }
+.nav--scrolled { box-shadow: 0 4px 16px rgba(20, 65, 120, .06); }
+.nav__logo:hover { transform: none; color: var(--color-primary-dark); }
+.nav__logo-icon { background: var(--color-primary); color: #fff; border-radius: 11px; font-size: 1.05rem; font-weight: 800; }
+.nav__logo-text { display: flex; flex-direction: column; line-height: 1.15; }
+.nav__logo-text strong { color: #10264a; font-size: 1rem; }
+.nav__logo-text small { color: #72849b; font-size: .68rem; font-weight: 500; margin-top: 3px; }
+.nav__link.active { color: #0b56b5; background: #e5f1ff; }
+
+@media (max-width: 768px) {
+  :root { --nav-height: 116px; }
+  .nav__inner { flex-wrap: wrap; align-content: center; gap: 8px; }
+  .nav__logo { width: 100%; }
+  .nav__links { width: 100%; gap: 4px; overflow-x: auto; padding-bottom: 2px; }
+  .nav__link { flex: 0 0 auto; padding: 7px 10px; }
+}
+
+@media (max-width: 420px) {
+  .nav__logo-icon { width: 32px; height: 32px; }
+  .nav__link { font-size: 11px; padding-inline: 8px; }
+  .main { padding-left: 12px; padding-right: 12px; }
 }
