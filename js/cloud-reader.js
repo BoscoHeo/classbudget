@@ -62,73 +62,239 @@ export function attachCloudReader({ app, auth }) {
   const status = document.getElementById('data-source-status');
   const localButton = document.getElementById('data-source-local');
   const cloudButton = document.getElementById('data-source-cloud');
+
   let generation = 0;
+  let unsubscribeReceipts = null;
+
   const refresh = () => App.navigate(window.location.hash || '#/');
+
+  function stopReceiptListener() {
+    if (unsubscribeReceipts) {
+      unsubscribeReceipts();
+      unsubscribeReceipts = null;
+    }
+  }
+
   function local(message) {
+    stopReceiptListener();
     Storage.setCloudView(null);
     status.textContent = message;
     refresh();
   }
+
   async function read(user) {
     const ticket = ++generation;
+
+    // 계정 변경/재연결 시 이전 계정의 listener를 먼저 종료
+    stopReceiptListener();
+
     cloudButton.hidden = !user;
     cloudButton.disabled = Boolean(user);
-    local(user ? '이 기기 로컬 자료 표시 중 · 클라우드 완료 기록을 확인하고 있습니다.' : '이 기기 로컬 자료 · 로그인하지 않은 상태입니다.');
+
+    local(
+      user
+        ? '이 기기 로컬 자료 표시 중 · 클라우드 완료 기록을 확인하고 있습니다.'
+        : '이 기기 로컬 자료 · 로그인하지 않은 상태입니다.'
+    );
+
     if (!user) return;
-    const current = () => ticket === generation && auth.currentUser?.uid === user.uid;
+
+    const current = () =>
+      ticket === generation &&
+      auth.currentUser?.uid === user.uid;
+
     try {
-      const sdk = await import('https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js');
+      const sdk = await import(
+        'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js'
+      );
+
       if (!current()) return;
+
       const db = sdk.getFirestore(app);
-      const marker = await sdk.getDocFromServer(sdk.doc(db, 'users', user.uid, 'migrations', 'initial-local'));
+
+      const marker = await sdk.getDocFromServer(
+        sdk.doc(db, 'users', user.uid, 'migrations', 'initial-local')
+      );
+
       if (!current()) return;
+
       if (!marker.exists() || marker.data().status !== 'complete') {
-        status.textContent = '이 기기 로컬 자료 · 이 계정에는 최초 이전 완료 기록이 없습니다.';
+        status.textContent =
+          '이 기기 로컬 자료 · 이 계정에는 최초 이전 완료 기록이 없습니다.';
         return;
       }
-      const [receipts, settings] = await Promise.all([
-        sdk.getDocsFromServer(sdk.collection(db, 'users', user.uid, 'receipts')),
-        sdk.getDocFromServer(sdk.doc(db, 'users', user.uid, 'settings', 'general')),
-      ]);
+
+      // settings는 이번 단계에서도 읽기 전용이며 실시간 동기화하지 않음
+      const settings = await sdk.getDocFromServer(
+        sdk.doc(db, 'users', user.uid, 'settings', 'general')
+      );
+
       if (!current()) return;
       if (!settings.exists()) throw new Error('missing-settings');
-      const data = selectCloudData(receipts.docs, settings.data());
+
+      // settings 형식을 먼저 검증
+      let data = selectCloudData([], settings.data());
       let writing = false;
+      let initialSnapshotLoaded = false;
+
       const describe = () => {
-        status.textContent = `${user.email || user.displayName || '현재 계정'} · 클라우드 영수증 ${data.receipts.length}건 · 영수증 등록/수정/삭제 가능, 설정은 읽기 전용. 첨부와 API Key는 저장하지 않습니다.`;
+        status.textContent =
+          `${user.email || user.displayName || '현재 계정'} · ` +
+          `클라우드 영수증 ${data.receipts.length}건 · ` +
+          `실시간 동기화 중 · 영수증 등록/수정/삭제 가능, ` +
+          `설정은 읽기 전용. 첨부와 API Key는 저장하지 않습니다.`;
       };
+
       const writer = async (operation, receiptId, input) => {
         if (writing) throw new Error('busy');
-        const assertCurrent = () => { if (!current() || !Storage.isCloudView()) throw new Error('account-changed'); };
+
+        const assertCurrent = () => {
+          if (!current() || !Storage.isCloudView()) {
+            throw new Error('account-changed');
+          }
+        };
+
         assertCurrent();
-        const id = operation === 'create' ? crypto.randomUUID() : receiptId;
-        const expected = data.receipts.find(receipt => receipt.id === id);
+
+        const id =
+          operation === 'create'
+            ? crypto.randomUUID()
+            : receiptId;
+
+        const expected = data.receipts.find(
+          receipt => receipt.id === id
+        );
+
         writing = true;
+
         try {
-          const saved = await writeCloudReceipt({ sdk, db, uid: user.uid, operation, id, input, expected, assertCurrent });
-          // Never apply an old account's response to the newly selected view.
+          const saved = await writeCloudReceipt({
+            sdk,
+            db,
+            uid: user.uid,
+            operation,
+            id,
+            input,
+            expected,
+            assertCurrent,
+          });
+
+          // 다른 계정/로컬 모드로 바뀐 뒤 도착한 응답은 적용하지 않음
           if (!current() || !Storage.isCloudView()) return null;
-          data.receipts = data.receipts.filter(receipt => receipt.id !== id);
-          if (saved) data.receipts.unshift(saved);
+
+          // 즉시 화면 반영용 메모리 갱신.
+          // 이후 onSnapshot이 Firestore의 최종 상태로 다시 확정한다.
+          data.receipts = data.receipts.filter(
+            receipt => receipt.id !== id
+          );
+
+          if (saved) {
+            data.receipts.push(saved);
+          }
+
+          data.receipts.sort(
+            (a, b) =>
+              (b.createdAt || b.date).localeCompare(
+                a.createdAt || a.date
+              ) || a.id.localeCompare(b.id)
+          );
+
           Storage.setCloudView(data, writer);
           describe();
+
           return saved || true;
-        } finally { writing = false; }
+        } finally {
+          writing = false;
+        }
       };
-      Storage.setCloudView(data, writer);
-      describe();
-      refresh();
+
+      const receiptsRef = sdk.collection(
+        db,
+        'users',
+        user.uid,
+        'receipts'
+      );
+
+      // 최초 1회 읽기 + 이후 변경을 모두 실시간 수신
+      unsubscribeReceipts = sdk.onSnapshot(
+        receiptsRef,
+
+        snapshot => {
+          if (!current()) return;
+
+          try {
+            const next = selectCloudData(
+              snapshot.docs,
+              settings.data()
+            );
+
+            const previousReceipts =
+              JSON.stringify(data.receipts);
+
+            const nextReceipts =
+              JSON.stringify(next.receipts);
+
+            const changed =
+              !initialSnapshotLoaded ||
+              previousReceipts !== nextReceipts;
+
+            data = next;
+
+            Storage.setCloudView(data, writer);
+            describe();
+
+            initialSnapshotLoaded = true;
+
+            // 동일한 쓰기 결과가 snapshot으로 재수신되더라도
+            // 화면 전체를 불필요하게 두 번 다시 그리지 않음
+            if (changed) {
+              refresh();
+            }
+          } catch {
+            status.textContent =
+              '클라우드 실시간 자료를 처리하지 못했습니다. 현재 화면 자료는 유지됩니다.';
+          }
+        },
+
+        () => {
+          if (!current()) return;
+
+          // listener 오류가 나더라도 이미 보던 클라우드 자료를 지우지 않음
+          if (initialSnapshotLoaded) {
+            status.textContent =
+              '클라우드 실시간 연결이 끊어졌습니다. 현재 표시된 자료는 유지됩니다. 연결 상태를 확인해주세요.';
+          } else {
+            status.textContent =
+              '클라우드 자료를 불러오지 못했습니다. 이 기기 로컬 자료를 사용할 수 있습니다.';
+          }
+        }
+      );
     } catch {
-      if (current()) local('클라우드 자료를 불러오지 못해 이 기기 로컬 자료를 표시합니다. 연결 상태를 확인하고 ‘클라우드 자료 읽기’를 다시 눌러주세요.');
+      if (current()) {
+        local(
+          '클라우드 자료를 불러오지 못해 이 기기 로컬 자료를 표시합니다. 연결 상태를 확인하고 ‘클라우드 자료 읽기’를 다시 눌러주세요.'
+        );
+      }
     } finally {
-      if (ticket === generation) cloudButton.disabled = false;
+      if (ticket === generation) {
+        cloudButton.disabled = false;
+      }
     }
   }
+
   localButton.addEventListener('click', () => {
     generation++;
+    stopReceiptListener();
     cloudButton.disabled = false;
-    local('이 기기 로컬 자료 · 등록/수정/OCR/백업·복원은 기존처럼 동작합니다. 로컬 변경은 클라우드에 반영되지 않습니다.');
+
+    local(
+      '이 기기 로컬 자료 · 등록/수정/OCR/백업·복원은 기존처럼 동작합니다. 로컬 변경은 클라우드에 반영되지 않습니다.'
+    );
   });
-  cloudButton.addEventListener('click', () => { void read(auth.currentUser); });
+
+  cloudButton.addEventListener('click', () => {
+    void read(auth.currentUser);
+  });
+
   return read;
 }
