@@ -1,5 +1,6 @@
 import { firebaseConfig } from './firebase-config.js';
 import { attachMigration } from './local-migration.js';
+import { attachCloudReader } from './cloud-reader.js';
 
 // Login never migrates data. The separate migration UI requires confirmation.
 const status = document.getElementById('account-status');
@@ -45,6 +46,7 @@ async function initializeAuthentication() {
     const app = appSdk.initializeApp(firebaseConfig, 'classbudget-auth');
     const auth = authSdk.getAuth(app);
     const renderMigration = attachMigration({ app, auth });
+    const readCloud = attachCloudReader({ app, auth });
     auth.languageCode = 'ko';
     const provider = new authSdk.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
@@ -69,11 +71,13 @@ async function initializeAuthentication() {
       ready = true;
       renderAccount(user);
       renderMigration(user);
+      void readCloud(user);
       status.textContent = user ? '로그인되었습니다. 최초 이전은 버튼을 눌러 확인한 경우에만 실행됩니다.' : '로그아웃 상태입니다. 기존 로컬 기능을 사용할 수 있습니다.';
     }, error => {
       ready = false;
       renderAccount(null);
       renderMigration(null);
+      void readCloud(null);
       status.textContent = errorMessage(error);
     });
 

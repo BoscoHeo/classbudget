@@ -5,6 +5,14 @@
 
 const Pages = (() => {
 
+  // Cloud strings are untrusted text; escape only at the HTML display boundary.
+  function displayRecord(data) {
+    if (!Storage.isCloudView()) return data;
+    const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return Object.fromEntries(Object.entries(data).map(([key, value]) => [key,
+      typeof value === 'string' ? value.replace(/[&<>"']/g, char => entities[char]) : value]));
+  }
+
   // === Helpers ===
   function fmt(n) { return ExcelExport.formatNumber(n); }
   function fmtDate(d) { return ExcelExport.formatDate(d); }
@@ -238,8 +246,8 @@ const Pages = (() => {
   // =====================
   function renderDashboard() {
     const stats = Storage.getStats();
-    const settings = Storage.getSettings();
-    const receipts = Storage.getReceipts();
+    const settings = displayRecord(Storage.getSettings());
+    const receipts = Storage.getReceipts().map(displayRecord);
     const recent = receipts.slice(0, 5);
 
     const budgetStatus = stats.usagePercent >= 90 ? 'danger' : stats.usagePercent >= 70 ? 'warning' : 'blue';
@@ -755,6 +763,7 @@ const Pages = (() => {
   function renderReceiptRows(receipts) {
     if (receipts.length === 0) return '';
     return receipts.map(r => {
+      r = displayRecord(r);
       const cat = getCategoryInfo(r.category);
       let attachCol = '<td style="text-align:center;color:var(--color-text-muted);">-</td>';
       if (r.imageData && r.imageData !== 'PDF_FILE') {
@@ -772,8 +781,8 @@ const Pages = (() => {
           <td class="table__amount">${fmt(r.amount)}원</td>
           <td>
             <div class="table__actions">
-              <button class="btn btn--secondary btn--icon btn--sm btn-edit-receipt" data-id="${r.id}" title="수정">✏️</button>
-              <button class="btn btn--danger btn--icon btn--sm btn-delete-receipt" data-id="${r.id}" title="삭제">🗑️</button>
+              <button class="btn btn--secondary btn--icon btn--sm btn-edit-receipt" data-id="${r.id}" title="수정" ${Storage.isCloudView() ? 'disabled' : ''}>✏️</button>
+              <button class="btn btn--danger btn--icon btn--sm btn-delete-receipt" data-id="${r.id}" title="삭제" ${Storage.isCloudView() ? 'disabled' : ''}>🗑️</button>
             </div>
           </td>
         </tr>
@@ -893,7 +902,7 @@ const Pages = (() => {
   //  SETTINGS PAGE
   // =====================
   function renderSettings() {
-    const settings = Storage.getSettings();
+    const settings = displayRecord(Storage.getSettings());
     const stats = Storage.getStats();
 
     return `

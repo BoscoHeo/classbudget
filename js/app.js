@@ -38,9 +38,24 @@ const App = (() => {
     const appEl = document.getElementById('app');
     if (!appEl) return;
 
+    if (Storage.isCloudView() && (path === '/add' || path === '/edit')) {
+      appEl.innerHTML = '<div class="card"><h1 class="section-title">클라우드 자료는 읽기 전용입니다</h1><p>등록·수정 및 OCR은 상단의 ‘이 기기 로컬 자료’로 전환해서 사용해주세요. 로컬 변경은 클라우드에 반영되지 않습니다.</p></div>';
+      updateNav('add');
+      return;
+    }
+
     // Render page
     appEl.innerHTML = route.render();
     route.init();
+
+    if (Storage.isCloudView() && path === '/settings') {
+      appEl.querySelectorAll('input, select, textarea, button:not(#btn-export-json)').forEach(element => { element.disabled = true; });
+      appEl.querySelectorAll('.settings-section').forEach(section => {
+        if (section.querySelector('#setting-gemini-key, #btn-clear-all') || section.textContent.includes('로컬 데이터 보관 안내')) section.hidden = true;
+      });
+      const info = appEl.querySelector('.settings-info');
+      if (info) info.textContent = '현재 계정의 클라우드 자료 · 읽기 전용. JSON 내보내기도 현재 클라우드 텍스트 자료를 사용합니다.';
+    }
 
     // Update nav active state
     updateNav(route.nav);

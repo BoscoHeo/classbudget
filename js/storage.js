@@ -4,6 +4,12 @@
  */
 
 const Storage = (() => {
+  let cloudView = null;
+  function setCloudView(data) { cloudView = data ? structuredClone(data) : null; }
+  function isCloudView() { return cloudView !== null; }
+  function requireLocal() {
+    if (cloudView) throw new Error('클라우드는 읽기 전용입니다. 이 기기 로컬 자료로 전환해주세요.');
+  }
   const KEYS = {
     RECEIPTS: 'classbudget_receipts',
     SETTINGS: 'classbudget_settings',
@@ -31,6 +37,7 @@ const Storage = (() => {
 
   // --- Receipts ---
   function getReceipts() {
+    if (cloudView) return structuredClone(cloudView.receipts);
     try {
       const data = localStorage.getItem(KEYS.RECEIPTS);
       return data ? JSON.parse(data) : [];
@@ -40,6 +47,7 @@ const Storage = (() => {
   }
 
   function saveReceipts(receipts) {
+    requireLocal();
     localStorage.setItem(KEYS.RECEIPTS, JSON.stringify(receipts));
   }
 
@@ -74,6 +82,7 @@ const Storage = (() => {
 
   // --- Settings ---
   function getSettings() {
+    if (cloudView) return { ...structuredClone(cloudView.general), geminiApiKey: '' };
     try {
       const data = localStorage.getItem(KEYS.SETTINGS);
       return data ? { ...DEFAULT_SETTINGS, ...JSON.parse(data) } : { ...DEFAULT_SETTINGS };
@@ -83,6 +92,7 @@ const Storage = (() => {
   }
 
   function saveSettings(settings) {
+    requireLocal();
     localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
   }
 
@@ -158,6 +168,7 @@ function importData(jsonString) {
 }
 
   function clearAll() {
+    requireLocal();
     localStorage.removeItem(KEYS.RECEIPTS);
     localStorage.removeItem(KEYS.SETTINGS);
   }
@@ -177,6 +188,8 @@ function importData(jsonString) {
   }
 
   return {
+    setCloudView,
+    isCloudView,
     CATEGORIES,
     getReceipts,
     addReceipt,
