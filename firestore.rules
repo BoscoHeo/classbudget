@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Phase 1: owner-only reads; ALL client writes remain disabled.
+    // Add strict field allowlists before enabling writes in a later phase.
+    match /users/{uid}/receipts/{receiptId} {
+      allow read: if isOwner(uid);
+      allow write: if false;
+    }
+    match /users/{uid}/settings/general {
+      allow read: if isOwner(uid);
+      allow write: if false;
+    }
+    match /users/{uid}/migrations/{migrationId} {
+      allow read: if isOwner(uid);
+      allow write: if false;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="css/index.css" />
   <link rel="stylesheet" href="css/components.css" />
   <link rel="stylesheet" href="css/pages.css" />
+  <link rel="stylesheet" href="css/auth.css" />
 </head>
 <body>
   <!-- Navigation -->
@@ -29,6 +30,20 @@
     </div>
   </nav>
 
+  <section class="account-panel" aria-label="Google 계정">
+    <div class="account-panel__info">
+      <strong>Google 계정</strong>
+      <p id="account-status" role="status" aria-live="polite">로그인 기능을 준비하고 있습니다.</p>
+      <p id="account-identity" hidden></p>
+      <p id="account-uid-row" hidden>UID: <code id="account-uid"></code></p>
+      <small>이번 단계는 로그인만 지원합니다. 영수증과 설정은 이 브라우저에만 저장되며, 로그인 계정을 바꿔도 현재 로컬 자료는 그대로 표시됩니다.</small>
+    </div>
+    <div class="account-panel__actions">
+      <button type="button" class="btn btn--secondary" id="account-login" disabled>Google 로그인</button>
+      <button type="button" class="btn btn--secondary" id="account-logout" hidden>로그아웃</button>
+    </div>
+  </section>
+
   <!-- Main Content -->
   <main class="main" id="app">
     <!-- Pages will be rendered here by the router -->
@@ -44,5 +59,6 @@
   <script src="js/excel-export.js"></script>
   <script src="js/pages.js"></script>
   <script src="js/app.js"></script>
+  <script type="module" src="js/firebase-auth.js"></script>
 </body>
 </html>
