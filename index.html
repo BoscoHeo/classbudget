@@ -36,12 +36,22 @@
       <p id="account-status" role="status" aria-live="polite">로그인 기능을 준비하고 있습니다.</p>
       <p id="account-identity" hidden></p>
       <p id="account-uid-row" hidden>UID: <code id="account-uid"></code></p>
-      <small>이번 단계는 로그인만 지원합니다. 영수증과 설정은 이 브라우저에만 저장되며, 로그인 계정을 바꿔도 현재 로컬 자료는 그대로 표시됩니다.</small>
+      <small>로그인만으로 업로드하지 않습니다. 최초 이전 후에도 화면은 로컬 자료를 사용하며, 이후 수정은 자동 동기화되지 않습니다. 계정을 바꿔도 현재 기기의 로컬 자료는 그대로 표시됩니다.</small>
     </div>
     <div class="account-panel__actions">
       <button type="button" class="btn btn--secondary" id="account-login" disabled>Google 로그인</button>
       <button type="button" class="btn btn--secondary" id="account-logout" hidden>로그아웃</button>
+      <button type="button" class="btn btn--primary" id="account-migrate" hidden>로컬 자료 최초 이전</button>
     </div>
+    <div class="migration-panel" id="migration-confirmation" hidden>
+      <strong>이 계정으로 최초 이전할까요?</strong>
+      <p id="migration-summary"></p>
+      <p>API Key와 이미지/PDF는 제외하고 텍스트 정보와 일반 설정만 복사합니다. 로컬 원본은 유지됩니다. 서버에 기존 자료가 있으면 중단합니다.</p>
+      <p>다른 기기 자료가 아닌 현재 기기의 자료인지 확인하세요. 이전 전 설정에서 JSON 백업을 권장합니다. 이번 단계는 최대 450건까지 지원합니다.</p>
+      <button type="button" class="btn btn--primary" id="migration-confirm">확인 후 최초 이전</button>
+      <button type="button" class="btn btn--secondary" id="migration-cancel">취소</button>
+    </div>
+    <p class="migration-status" id="migration-status" role="status" aria-live="polite"></p>
   </section>
 
   <!-- Main Content -->

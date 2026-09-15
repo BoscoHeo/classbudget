@@ -26,3 +26,11 @@
   .account-panel { margin-left: 16px; margin-right: 16px; padding: 16px; align-items: stretch; flex-direction: column; }
   .account-panel__actions .btn { width: 100%; }
 }
+
+.account-panel { flex-wrap: wrap; }
+.account-panel__info { flex: 1 1 320px; }
+.account-panel__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.migration-panel { flex-basis: 100%; padding: 16px; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
+.migration-panel p { margin: 8px 0; overflow-wrap: anywhere; }
+.migration-status { flex-basis: 100%; overflow-wrap: anywhere; }
+.migration-status:empty { display: none; }

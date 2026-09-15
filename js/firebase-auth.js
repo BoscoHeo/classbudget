@@ -1,6 +1,7 @@
 import { firebaseConfig } from './firebase-config.js';
+import { attachMigration } from './local-migration.js';
 
-// Authentication only. No Storage calls, data migration, or Firestore operations.
+// Login never migrates data. The separate migration UI requires confirmation.
 const status = document.getElementById('account-status');
 const identity = document.getElementById('account-identity');
 const uidRow = document.getElementById('account-uid-row');
@@ -43,6 +44,7 @@ async function initializeAuthentication() {
     ]);
     const app = appSdk.initializeApp(firebaseConfig, 'classbudget-auth');
     const auth = authSdk.getAuth(app);
+    const renderMigration = attachMigration({ app, auth });
     auth.languageCode = 'ko';
     const provider = new authSdk.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
@@ -66,10 +68,12 @@ async function initializeAuthentication() {
     authSdk.onAuthStateChanged(auth, user => {
       ready = true;
       renderAccount(user);
-      status.textContent = user ? '로그인되었습니다. 데이터 동기화는 아직 시작하지 않습니다.' : '로그아웃 상태입니다. 기존 로컬 기능을 사용할 수 있습니다.';
+      renderMigration(user);
+      status.textContent = user ? '로그인되었습니다. 최초 이전은 버튼을 눌러 확인한 경우에만 실행됩니다.' : '로그아웃 상태입니다. 기존 로컬 기능을 사용할 수 있습니다.';
     }, error => {
       ready = false;
       renderAccount(null);
+      renderMigration(null);
       status.textContent = errorMessage(error);
     });
 
