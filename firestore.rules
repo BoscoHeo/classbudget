@@ -1,62 +1,213 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function isOwner(uid) {
-      return request.auth != null && request.auth.uid == uid;
+      return request.auth != null
+        && request.auth.uid == uid;
     }
-    // Initial import stays atomic. Only receipts support subsequent CRUD.
+
     function initialImport(uid) {
-      return !exists(/databases/$(database)/documents/users/$(uid)/migrations/initial-local)
-        && getAfter(/databases/$(database)/documents/users/$(uid)/migrations/initial-local).data.status == 'complete';
+      return !exists(
+        /databases/$(database)/documents/users/$(uid)/migrations/initial-local
+      )
+      && getAfter(
+        /databases/$(database)/documents/users/$(uid)/migrations/initial-local
+      ).data.status == 'complete';
     }
+
     function shortText(value, maximum) {
-      return value is string && value.size() <= maximum;
+      return value is string
+        && value.size() <= maximum;
     }
+
     function imported(uid) {
-      return get(/databases/$(database)/documents/users/$(uid)/migrations/initial-local).data.status == 'complete';
+      return get(
+        /databases/$(database)/documents/users/$(uid)/migrations/initial-local
+      ).data.status == 'complete';
     }
+
+    function validGeneralSettings() {
+      return request.resource.data.keys().hasAll([
+        'budgetName',
+        'totalBudget',
+        'schoolName',
+        'teacherName',
+        'className'
+      ])
+      && request.resource.data.keys().hasOnly([
+        'budgetName',
+        'totalBudget',
+        'schoolName',
+        'teacherName',
+        'className'
+      ])
+      && request.resource.data.totalBudget is number
+      && shortText(
+        request.resource.data.budgetName,
+        1000
+      )
+      && shortText(
+        request.resource.data.schoolName,
+        1000
+      )
+      && shortText(
+        request.resource.data.teacherName,
+        1000
+      )
+      && shortText(
+        request.resource.data.className,
+        1000
+      );
+    }
+
     match /users/{uid}/receipts/{receiptId} {
-      allow read: if isOwner(uid);
-      allow create, update: if isOwner(uid) && (initialImport(uid) || imported(uid))
-        && request.resource.data.keys().hasAll(['id', 'date', 'amount', 'item', 'store', 'category', 'memo'])
-        && request.resource.data.keys().hasOnly(['id', 'date', 'amount', 'item', 'store', 'category', 'memo', 'createdAt', 'updatedAt'])
-        && request.resource.data.id == receiptId
-        && receiptId.matches('^[A-Za-z0-9_-]{1,128}$')
-        && request.resource.data.amount is number
-        && shortText(request.resource.data.date, 32)
-        && shortText(request.resource.data.item, 1000)
-        && shortText(request.resource.data.store, 1000)
-        && shortText(request.resource.data.category, 100)
-        && shortText(request.resource.data.memo, 10000)
-        && shortText(request.resource.data.get('createdAt', ''), 64)
-        && shortText(request.resource.data.get('updatedAt', ''), 64);
-      allow delete: if isOwner(uid) && imported(uid);
+
+      allow read:
+        if isOwner(uid);
+
+      allow create, update:
+        if isOwner(uid)
+        && (
+          initialImport(uid)
+          || imported(uid)
+        )
+        && request.resource.data.keys().hasAll([
+          'id',
+          'date',
+          'amount',
+          'item',
+          'store',
+          'category',
+          'memo'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id',
+          'date',
+          'amount',
+          'item',
+          'store',
+          'category',
+          'memo',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.id
+          == receiptId
+        && receiptId.matches(
+          '^[A-Za-z0-9_-]{1,128}$'
+        )
+        && request.resource.data.amount
+          is number
+        && shortText(
+          request.resource.data.date,
+          32
+        )
+        && shortText(
+          request.resource.data.item,
+          1000
+        )
+        && shortText(
+          request.resource.data.store,
+          1000
+        )
+        && shortText(
+          request.resource.data.category,
+          100
+        )
+        && shortText(
+          request.resource.data.memo,
+          10000
+        )
+        && shortText(
+          request.resource.data.get(
+            'createdAt',
+            ''
+          ),
+          64
+        )
+        && shortText(
+          request.resource.data.get(
+            'updatedAt',
+            ''
+          ),
+          64
+        );
+
+      allow delete:
+        if isOwner(uid)
+        && imported(uid);
     }
+
     match /users/{uid}/settings/general {
-      allow read: if isOwner(uid);
-      allow create: if isOwner(uid) && initialImport(uid)
-        && request.resource.data.keys().hasAll(['budgetName', 'totalBudget', 'schoolName', 'teacherName', 'className'])
-        && request.resource.data.keys().hasOnly(['budgetName', 'totalBudget', 'schoolName', 'teacherName', 'className'])
-        && request.resource.data.totalBudget is number
-        && shortText(request.resource.data.budgetName, 1000)
-        && shortText(request.resource.data.schoolName, 1000)
-        && shortText(request.resource.data.teacherName, 1000)
-        && shortText(request.resource.data.className, 1000);
-      allow update, delete: if false;
+
+      allow read:
+        if isOwner(uid);
+
+      allow create:
+        if isOwner(uid)
+        && initialImport(uid)
+        && validGeneralSettings();
+
+      allow update:
+        if isOwner(uid)
+        && imported(uid)
+        && validGeneralSettings();
+
+      allow delete:
+        if false;
     }
+
     match /users/{uid}/migrations/{migrationId} {
-      allow read: if isOwner(uid);
-      allow create: if isOwner(uid) && migrationId == 'initial-local'
-        && request.resource.data.keys().hasAll(['status', 'receiptCount', 'createdAt'])
-        && request.resource.data.keys().hasOnly(['status', 'receiptCount', 'createdAt'])
-        && request.resource.data.status == 'complete'
-        && request.resource.data.receiptCount is int
-        && request.resource.data.receiptCount >= 0 && request.resource.data.receiptCount <= 450
-        && request.resource.data.createdAt == request.time
-        && !exists(/databases/$(database)/documents/users/$(uid)/settings/general)
-        && getAfter(/databases/$(database)/documents/users/$(uid)/settings/general).data.keys().hasAll(['budgetName', 'totalBudget', 'schoolName', 'teacherName', 'className']);
-      allow update, delete: if false;
+
+      allow read:
+        if isOwner(uid);
+
+      allow create:
+        if isOwner(uid)
+        && migrationId
+          == 'initial-local'
+        && request.resource.data.keys().hasAll([
+          'status',
+          'receiptCount',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'status',
+          'receiptCount',
+          'createdAt'
+        ])
+        && request.resource.data.status
+          == 'complete'
+        && request.resource.data.receiptCount
+          is int
+        && request.resource.data.receiptCount
+          >= 0
+        && request.resource.data.receiptCount
+          <= 450
+        && request.resource.data.createdAt
+          == request.time
+        && !exists(
+          /databases/$(database)/documents/users/$(uid)/settings/general
+        )
+        && getAfter(
+          /databases/$(database)/documents/users/$(uid)/settings/general
+        ).data.keys().hasAll([
+          'budgetName',
+          'totalBudget',
+          'schoolName',
+          'teacherName',
+          'className'
+        ]);
+
+      allow update, delete:
+        if false;
     }
-    match /{document=**} { allow read, write: if false; }
+
+    match /{document=**} {
+      allow read, write:
+        if false;
+    }
   }
 }

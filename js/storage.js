@@ -6,18 +6,33 @@
 const Storage = (() => {
   let cloudView = null;
   let cloudWriter = null;
-  function setCloudView(data, writer = null) {
+  let cloudSettingsWriter = null;
+
+  function setCloudView(data, writer = null, settingsWriter = null) {
     cloudView = data ? structuredClone(data) : null;
     cloudWriter = data ? writer : null;
+    cloudSettingsWriter = data ? settingsWriter : null;
   }
+
   function writeCloud(operation, id, data) {
-    if (!cloudWriter) throw new Error('클라우드 연결을 다시 확인해주세요.');
+    if (!cloudWriter) {
+      throw new Error('클라우드 연결을 다시 확인해주세요.');
+    }
     return cloudWriter(operation, id, data);
   }
-  function isCloudView() { return cloudView !== null; }
-  function requireLocal() {
-    if (cloudView) throw new Error('클라우드는 읽기 전용입니다. 이 기기 로컬 자료로 전환해주세요.');
+
+  function isCloudView() {
+    return cloudView !== null;
   }
+
+  function requireLocal() {
+    if (cloudView) {
+      throw new Error(
+        '현재 클라우드 자료를 사용 중입니다. 이 기기 로컬 자료로 전환해주세요.'
+      );
+    }
+  }
+
   const KEYS = {
     RECEIPTS: 'classbudget_receipts',
     SETTINGS: 'classbudget_settings',
@@ -45,7 +60,10 @@ const Storage = (() => {
 
   // --- Receipts ---
   function getReceipts() {
-    if (cloudView) return structuredClone(cloudView.receipts);
+    if (cloudView) {
+      return structuredClone(cloudView.receipts);
+    }
+
     try {
       const data = localStorage.getItem(KEYS.RECEIPTS);
       return data ? JSON.parse(data) : [];
@@ -60,29 +78,51 @@ const Storage = (() => {
   }
 
   function addReceipt(receipt) {
-    if (cloudView) return writeCloud('create', null, receipt);
+    if (cloudView) {
+      return writeCloud('create', null, receipt);
+    }
+
     const receipts = getReceipts();
-    receipt.id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+
+    receipt.id =
+      Date.now().toString(36) +
+      Math.random().toString(36).substr(2, 5);
+
     receipt.createdAt = new Date().toISOString();
+
     receipts.unshift(receipt);
     saveReceipts(receipts);
+
     return receipt;
   }
 
   function updateReceipt(id, updates) {
-    if (cloudView) return writeCloud('update', id, updates);
+    if (cloudView) {
+      return writeCloud('update', id, updates);
+    }
+
     const receipts = getReceipts();
     const idx = receipts.findIndex(r => r.id === id);
+
     if (idx !== -1) {
-      receipts[idx] = { ...receipts[idx], ...updates, updatedAt: new Date().toISOString() };
+      receipts[idx] = {
+        ...receipts[idx],
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      };
+
       saveReceipts(receipts);
       return receipts[idx];
     }
+
     return null;
   }
 
   function deleteReceipt(id) {
-    if (cloudView) return writeCloud('delete', id);
+    if (cloudView) {
+      return writeCloud('delete', id);
+    }
+
     const receipts = getReceipts().filter(r => r.id !== id);
     saveReceipts(receipts);
   }
@@ -93,108 +133,221 @@ const Storage = (() => {
 
   // --- Settings ---
   function getSettings() {
-    if (cloudView) return { ...structuredClone(cloudView.general), geminiApiKey: '' };
+    if (cloudView) {
+      return {
+        ...structuredClone(cloudView.general),
+        geminiApiKey: '',
+      };
+    }
+
     try {
       const data = localStorage.getItem(KEYS.SETTINGS);
-      return data ? { ...DEFAULT_SETTINGS, ...JSON.parse(data) } : { ...DEFAULT_SETTINGS };
+
+      return data
+        ? {
+            ...DEFAULT_SETTINGS,
+            ...JSON.parse(data),
+          }
+        : {
+            ...DEFAULT_SETTINGS,
+          };
     } catch {
-      return { ...DEFAULT_SETTINGS };
+      return {
+        ...DEFAULT_SETTINGS,
+      };
     }
   }
 
   function saveSettings(settings) {
-    requireLocal();
-    localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
+    if (cloudView) {
+      if (!cloudSettingsWriter) {
+        throw new Error(
+          '클라우드 설정 연결을 다시 확인해주세요.'
+        );
+      }
+
+      const general = {
+        budgetName:
+          typeof settings.budgetName === 'string'
+            ? settings.budgetName
+            : '',
+        totalBudget:
+          Number(settings.totalBudget) || 0,
+        schoolName:
+          typeof settings.schoolName === 'string'
+            ? settings.schoolName
+            : '',
+        teacherName:
+          typeof settings.teacherName === 'string'
+            ? settings.teacherName
+            : '',
+        className:
+          typeof settings.className === 'string'
+            ? settings.className
+            : '',
+      };
+
+      return cloudSettingsWriter(general);
+    }
+
+    localStorage.setItem(
+      KEYS.SETTINGS,
+      JSON.stringify(settings)
+    );
   }
 
   // --- Statistics ---
   function getStats() {
     const receipts = getReceipts();
     const settings = getSettings();
-    const totalSpent = receipts.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-    const remaining = settings.totalBudget - totalSpent;
-    const usagePercent = settings.totalBudget > 0 ? (totalSpent / settings.totalBudget) * 100 : 0;
 
-    // Category breakdown
+    const totalSpent = receipts.reduce(
+      (sum, r) => sum + (Number(r.amount) || 0),
+      0
+    );
+
+    const remaining =
+      settings.totalBudget - totalSpent;
+
+    const usagePercent =
+      settings.totalBudget > 0
+        ? (totalSpent / settings.totalBudget) * 100
+        : 0;
+
     const categoryMap = {};
+
     receipts.forEach(r => {
       const cat = r.category || 'other';
-      categoryMap[cat] = (categoryMap[cat] || 0) + (Number(r.amount) || 0);
+
+      categoryMap[cat] =
+        (categoryMap[cat] || 0) +
+        (Number(r.amount) || 0);
     });
 
-    const categoryBreakdown = CATEGORIES.map(c => ({
-      ...c,
-      total: categoryMap[c.id] || 0,
-      percent: totalSpent > 0 ? ((categoryMap[c.id] || 0) / totalSpent) * 100 : 0,
-    })).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
+    const categoryBreakdown = CATEGORIES
+      .map(c => ({
+        ...c,
+        total: categoryMap[c.id] || 0,
+        percent:
+          totalSpent > 0
+            ? ((categoryMap[c.id] || 0) /
+                totalSpent) *
+              100
+            : 0,
+      }))
+      .filter(c => c.total > 0)
+      .sort((a, b) => b.total - a.total);
 
     return {
       totalBudget: settings.totalBudget,
       totalSpent,
       remaining,
-      usagePercent: Math.min(usagePercent, 100),
+      usagePercent: Math.min(
+        usagePercent,
+        100
+      ),
       receiptCount: receipts.length,
       categoryBreakdown,
     };
   }
 
-  // --- Import/Export ---
-function exportData() {
+  // --- Import / Export ---
+  function exportData() {
     const settings = getSettings();
-    const { geminiApiKey, ...safeSettings } = settings;
+
+    const {
+      geminiApiKey,
+      ...safeSettings
+    } = settings;
 
     const data = {
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        settings: safeSettings,
-        receipts: getReceipts(),
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      settings: safeSettings,
+      receipts: getReceipts(),
     };
+
     return JSON.stringify(data, null, 2);
-}
+  }
 
-function importData(jsonString) {
+  function importData(jsonString) {
     try {
-        const data = JSON.parse(jsonString);
+      const data = JSON.parse(jsonString);
 
-        if (data.settings) {
-            const currentSettings = getSettings();
-            const { geminiApiKey, ...importedSettings } = data.settings;
+      if (data.settings) {
+        const currentSettings =
+          getSettings();
 
-            saveSettings({
-                ...currentSettings,
-                ...importedSettings,
-                geminiApiKey: currentSettings.geminiApiKey || '',
-            });
-        }
+        const {
+          geminiApiKey,
+          ...importedSettings
+        } = data.settings;
 
-        if (data.receipts) saveReceipts(data.receipts);
+        saveSettings({
+          ...currentSettings,
+          ...importedSettings,
+          geminiApiKey:
+            currentSettings.geminiApiKey ||
+            '',
+        });
+      }
 
-        return {
-            success: true,
-            count: (data.receipts || []).length
-        };
+      if (data.receipts) {
+        saveReceipts(data.receipts);
+      }
+
+      return {
+        success: true,
+        count:
+          (data.receipts || []).length,
+      };
     } catch (e) {
-        return { success: false, error: e.message };
+      return {
+        success: false,
+        error: e.message,
+      };
     }
-}
+  }
 
   function clearAll() {
     requireLocal();
-    localStorage.removeItem(KEYS.RECEIPTS);
-    localStorage.removeItem(KEYS.SETTINGS);
+
+    localStorage.removeItem(
+      KEYS.RECEIPTS
+    );
+
+    localStorage.removeItem(
+      KEYS.SETTINGS
+    );
   }
 
   // --- Permanent Storage Request ---
   async function requestPersistStorage() {
-    if (navigator.storage && navigator.storage.persist) {
+    if (
+      navigator.storage &&
+      navigator.storage.persist
+    ) {
       try {
-        const isPersisted = await navigator.storage.persist();
-        console.log(`[Storage] Permanent storage persistence: ${isPersisted ? 'Active' : 'Default'}`);
+        const isPersisted =
+          await navigator.storage.persist();
+
+        console.log(
+          `[Storage] Permanent storage persistence: ${
+            isPersisted
+              ? 'Active'
+              : 'Default'
+          }`
+        );
+
         return isPersisted;
       } catch (e) {
-        console.warn('[Storage] Could not request persistence:', e);
+        console.warn(
+          '[Storage] Could not request persistence:',
+          e
+        );
       }
     }
+
     return false;
   }
 
