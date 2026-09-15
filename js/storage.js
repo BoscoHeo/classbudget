@@ -5,7 +5,15 @@
 
 const Storage = (() => {
   let cloudView = null;
-  function setCloudView(data) { cloudView = data ? structuredClone(data) : null; }
+  let cloudWriter = null;
+  function setCloudView(data, writer = null) {
+    cloudView = data ? structuredClone(data) : null;
+    cloudWriter = data ? writer : null;
+  }
+  function writeCloud(operation, id, data) {
+    if (!cloudWriter) throw new Error('클라우드 연결을 다시 확인해주세요.');
+    return cloudWriter(operation, id, data);
+  }
   function isCloudView() { return cloudView !== null; }
   function requireLocal() {
     if (cloudView) throw new Error('클라우드는 읽기 전용입니다. 이 기기 로컬 자료로 전환해주세요.');
@@ -52,6 +60,7 @@ const Storage = (() => {
   }
 
   function addReceipt(receipt) {
+    if (cloudView) return writeCloud('create', null, receipt);
     const receipts = getReceipts();
     receipt.id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
     receipt.createdAt = new Date().toISOString();
@@ -61,6 +70,7 @@ const Storage = (() => {
   }
 
   function updateReceipt(id, updates) {
+    if (cloudView) return writeCloud('update', id, updates);
     const receipts = getReceipts();
     const idx = receipts.findIndex(r => r.id === id);
     if (idx !== -1) {
@@ -72,6 +82,7 @@ const Storage = (() => {
   }
 
   function deleteReceipt(id) {
+    if (cloudView) return writeCloud('delete', id);
     const receipts = getReceipts().filter(r => r.id !== id);
     saveReceipts(receipts);
   }

@@ -38,12 +38,6 @@ const App = (() => {
     const appEl = document.getElementById('app');
     if (!appEl) return;
 
-    if (Storage.isCloudView() && (path === '/add' || path === '/edit')) {
-      appEl.innerHTML = '<div class="card"><h1 class="section-title">클라우드 자료는 읽기 전용입니다</h1><p>등록·수정 및 OCR은 상단의 ‘이 기기 로컬 자료’로 전환해서 사용해주세요. 로컬 변경은 클라우드에 반영되지 않습니다.</p></div>';
-      updateNav('add');
-      return;
-    }
-
     // Render page
     appEl.innerHTML = route.render();
     route.init();

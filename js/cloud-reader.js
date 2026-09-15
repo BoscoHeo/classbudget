@@ -1,4 +1,39 @@
-// Phase 3-1: server reads only; no persistent cache or localStorage writes.
+// Cloud receipts stay in memory. Settings remain read-only; no localStorage writes.
+function receiptFields(data) {
+  const clean = {};
+  for (const key of ['id', 'date', 'amount', 'item', 'store', 'category', 'memo', 'createdAt', 'updatedAt']) {
+    if (data[key] !== undefined) clean[key] = data[key];
+  }
+  return clean;
+}
+
+export async function writeCloudReceipt({ sdk, db, uid, operation, id, input, expected, assertCurrent }) {
+  assertCurrent();
+  if (!['create', 'update', 'delete'].includes(operation) || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error('invalid-operation');
+  const ref = sdk.doc(db, 'users', uid, 'receipts', id);
+  let saved = null;
+  await sdk.runTransaction(db, async transaction => {
+    assertCurrent();
+    const existing = await transaction.get(ref);
+    assertCurrent();
+    if (operation === 'create') {
+      if (existing.exists()) throw new Error('already-exists');
+    } else {
+      if (!existing.exists() || !expected || JSON.stringify(receiptFields(existing.data())) !== JSON.stringify(receiptFields(expected))) throw new Error('conflict');
+    }
+    if (operation === 'delete') { transaction.delete(ref); return; }
+    const now = new Date().toISOString();
+    saved = receiptFields({ ...input, id, createdAt: operation === 'create' ? now : expected.createdAt, updatedAt: now });
+    const limits = { date: 32, item: 1000, store: 1000, category: 100, memo: 10000 };
+    for (const [key, max] of Object.entries(limits)) {
+      if (typeof saved[key] !== 'string' || saved[key].length > max) throw new Error('invalid-field');
+    }
+    if (!Number.isFinite(saved.amount)) throw new Error('invalid-amount');
+    transaction.set(ref, saved);
+  });
+  return saved;
+}
+
 export function selectCloudData(receiptDocs, settings) {
   const general = {};
   for (const key of ['budgetName', 'schoolName', 'teacherName', 'className']) {
@@ -58,8 +93,30 @@ export function attachCloudReader({ app, auth }) {
       if (!current()) return;
       if (!settings.exists()) throw new Error('missing-settings');
       const data = selectCloudData(receipts.docs, settings.data());
-      Storage.setCloudView(data);
-      status.textContent = `${user.email || user.displayName || '현재 계정'} · 클라우드 자료 ${data.receipts.length}건 · 읽기 전용. 첨부와 API Key는 포함되지 않습니다. Excel/JSON 내보내기는 현재 자료를 사용합니다.`;
+      let writing = false;
+      const describe = () => {
+        status.textContent = `${user.email || user.displayName || '현재 계정'} · 클라우드 영수증 ${data.receipts.length}건 · 영수증 등록/수정/삭제 가능, 설정은 읽기 전용. 첨부와 API Key는 저장하지 않습니다.`;
+      };
+      const writer = async (operation, receiptId, input) => {
+        if (writing) throw new Error('busy');
+        const assertCurrent = () => { if (!current() || !Storage.isCloudView()) throw new Error('account-changed'); };
+        assertCurrent();
+        const id = operation === 'create' ? crypto.randomUUID() : receiptId;
+        const expected = data.receipts.find(receipt => receipt.id === id);
+        writing = true;
+        try {
+          const saved = await writeCloudReceipt({ sdk, db, uid: user.uid, operation, id, input, expected, assertCurrent });
+          // Never apply an old account's response to the newly selected view.
+          if (!current() || !Storage.isCloudView()) return null;
+          data.receipts = data.receipts.filter(receipt => receipt.id !== id);
+          if (saved) data.receipts.unshift(saved);
+          Storage.setCloudView(data, writer);
+          describe();
+          return saved || true;
+        } finally { writing = false; }
+      };
+      Storage.setCloudView(data, writer);
+      describe();
       refresh();
     } catch {
       if (current()) local('클라우드 자료를 불러오지 못해 이 기기 로컬 자료를 표시합니다. 연결 상태를 확인하고 ‘클라우드 자료 읽기’를 다시 눌러주세요.');

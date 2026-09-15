@@ -381,7 +381,7 @@ const Pages = (() => {
   // =====================
   function renderAddReceipt(editId) {
     const isEdit = !!editId;
-    const receipt = isEdit ? Storage.getReceiptById(editId) : null;
+    const receipt = isEdit ? displayRecord(Storage.getReceiptById(editId) || {}) : null;
 
     const categoryOptions = Storage.CATEGORIES.map(c =>
       `<option value="${c.id}" ${receipt && receipt.category === c.id ? 'selected' : ''}>${c.icon} ${c.name}</option>`
@@ -399,7 +399,7 @@ const Pages = (() => {
 
         <div class="card">
           <form id="receipt-form">
-            ${isEdit ? `<input type="hidden" id="receipt-id" value="${editId}">` : ''}
+            ${isEdit ? `<input type="hidden" id="receipt-id" value="${displayRecord({ id: editId }).id}">` : ''}
 
             <div class="form-row">
               <div class="form-group">
@@ -435,8 +435,9 @@ const Pages = (() => {
               <textarea id="receipt-memo" class="form-input" placeholder="추가 메모 사항 (선택)">${receipt ? (receipt.memo || '') : ''}</textarea>
             </div>
 
+            ${Storage.isCloudView() ? '<p class="form-hint">클라우드에는 영수증 텍스트만 저장합니다. 첨부파일·OCR은 이 기기 로컬 자료 모드에서 사용해주세요.</p>' : ''}
             <!-- Image Upload -->
-            <div class="form-group">
+            <div class="form-group" ${Storage.isCloudView() ? 'hidden' : ''}>
               <label class="form-label">영수증 이미지/PDF (선택)</label>
               <div class="upload-dropzone" id="upload-dropzone">
                 <input type="file" id="receipt-file" accept="image/*,.pdf" style="display:none;">
@@ -523,7 +524,7 @@ const Pages = (() => {
     const previewName = document.getElementById('upload-preview-name');
     const btnRemove = document.getElementById('btn-remove-file');
 
-    if (dropzone && fileInput) {
+    if (dropzone && fileInput && !Storage.isCloudView()) {
       // Click to select file
       dropzone.addEventListener('click', (e) => {
         if (e.target.closest('#btn-remove-file')) return;
@@ -636,7 +637,11 @@ const Pages = (() => {
     }
   }
 
-  function saveReceipt(continueAdding) {
+  let receiptSaving = false;
+  async function saveReceipt(continueAdding) {
+    if (receiptSaving) return;
+    const form = document.getElementById('receipt-form');
+    const cloud = Storage.isCloudView();
     const idField = document.getElementById('receipt-id');
     const date = document.getElementById('receipt-date').value;
     const amount = document.getElementById('receipt-amount').value;
@@ -658,14 +663,20 @@ const Pages = (() => {
       data.imageName = _pendingImageName;
     }
 
+    receiptSaving = true;
+    const buttons = form.querySelectorAll('button');
+    buttons.forEach(button => { button.disabled = true; });
+    try {
     if (idField) {
       // Edit mode
-      Storage.updateReceipt(idField.value, data);
+      const saved = await Storage.updateReceipt(idField.value, data);
+      if (!form.isConnected || (cloud && !saved)) return;
       App.showToast('영수증이 수정되었습니다.', 'success');
       window.location.hash = '#/list';
     } else {
       // New
-      Storage.addReceipt(data);
+      const saved = await Storage.addReceipt(data);
+      if (!form.isConnected || (cloud && !saved)) return;
       App.showToast('영수증이 저장되었습니다!', 'success');
 
       if (continueAdding) {
@@ -685,6 +696,12 @@ const Pages = (() => {
       } else {
         window.location.hash = '#/';
       }
+    }
+    } catch (error) {
+      if (form.isConnected) App.showToast(cloud ? '클라우드 저장 실패: 연결/권한을 확인해주세요. 다른 기기에서 변경했다면 클라우드 자료를 다시 읽어주세요.' : '로컬 저장을 완료하지 못했습니다.', 'error');
+    } finally {
+      receiptSaving = false;
+      buttons.forEach(button => { button.disabled = false; });
     }
   }
 
@@ -781,8 +798,8 @@ const Pages = (() => {
           <td class="table__amount">${fmt(r.amount)}원</td>
           <td>
             <div class="table__actions">
-              <button class="btn btn--secondary btn--icon btn--sm btn-edit-receipt" data-id="${r.id}" title="수정" ${Storage.isCloudView() ? 'disabled' : ''}>✏️</button>
-              <button class="btn btn--danger btn--icon btn--sm btn-delete-receipt" data-id="${r.id}" title="삭제" ${Storage.isCloudView() ? 'disabled' : ''}>🗑️</button>
+              <button class="btn btn--secondary btn--icon btn--sm btn-edit-receipt" data-id="${r.id}" title="수정">✏️</button>
+              <button class="btn btn--danger btn--icon btn--sm btn-delete-receipt" data-id="${r.id}" title="삭제">🗑️</button>
             </div>
           </td>
         </tr>
@@ -877,12 +894,20 @@ const Pages = (() => {
 
     // Delete buttons
     document.querySelectorAll('.btn-delete-receipt').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
+        if (btn.disabled) return;
         const id = btn.dataset.id;
         if (confirm('이 영수증을 삭제하시겠습니까?')) {
-          Storage.deleteReceipt(id);
+          const cloud = Storage.isCloudView();
+          btn.disabled = true;
+          try {
+          const deleted = await Storage.deleteReceipt(id);
+          if (!btn.isConnected || (cloud && !deleted)) return;
           App.showToast('영수증이 삭제되었습니다.', 'warning');
           App.navigate(window.location.hash);
+          } catch {
+            if (btn.isConnected) App.showToast('삭제하지 못했습니다. 연결/권한을 확인하고 클라우드 자료를 다시 읽어주세요.', 'error');
+          } finally { btn.disabled = false; }
         }
       });
     });
