@@ -4,6 +4,49 @@
  */
 
 const Storage = (() => {
+  // Device-local attachments only. These helpers do not call cloud CRUD.
+  function cloudAttachmentKey(uid, receiptId) {
+    if (typeof uid !== 'string' || !uid.trim() ||
+        typeof receiptId !== 'string' || !receiptId.trim()) {
+      throw new Error('UID와 receiptId가 필요합니다.');
+    }
+    return 'classbudget_cloud_attachment:' +
+      encodeURIComponent(uid) + ':' + encodeURIComponent(receiptId);
+  }
+
+  function saveCloudAttachment(uid, receiptId, attachment) {
+    const key = cloudAttachmentKey(uid, receiptId);
+    if (!attachment || typeof attachment.imageData !== 'string' ||
+        typeof attachment.imageName !== 'string') {
+      throw new Error('첨부 데이터 형식이 올바르지 않습니다.');
+    }
+    // Keep an explicit allowlist; propagate quota/access errors to the caller.
+    localStorage.setItem(key, JSON.stringify({
+      imageData: attachment.imageData,
+      imageName: attachment.imageName,
+    }));
+  }
+
+  function getCloudAttachment(uid, receiptId) {
+    const raw = localStorage.getItem(cloudAttachmentKey(uid, receiptId));
+    if (raw === null) return null;
+    try {
+      const attachment = JSON.parse(raw);
+      if (!attachment || typeof attachment.imageData !== 'string' ||
+          typeof attachment.imageName !== 'string') return null;
+      return {
+        imageData: attachment.imageData,
+        imageName: attachment.imageName,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function deleteCloudAttachment(uid, receiptId) {
+    localStorage.removeItem(cloudAttachmentKey(uid, receiptId));
+  }
+
   let cloudView = null;
   let cloudWriter = null;
   let cloudSettingsWriter = null;
@@ -352,6 +395,9 @@ const Storage = (() => {
   }
 
   return {
+    saveCloudAttachment,
+    getCloudAttachment,
+    deleteCloudAttachment,
     setCloudView,
     isCloudView,
     CATEGORIES,

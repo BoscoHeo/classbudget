@@ -24,6 +24,14 @@ const Pages = (() => {
   // Temporary storage for uploaded image data (base64)
   let _pendingImageData = null;
   let _pendingImageName = null;
+  let _pendingCloudAttachmentChanged = false;
+
+  function getDeviceGeminiApiKey() {
+    try {
+      const settings = JSON.parse(localStorage.getItem('classbudget_settings') || '{}');
+      return typeof settings.geminiApiKey === 'string' ? settings.geminiApiKey : '';
+    } catch { return ''; }
+  }
 
   /**
    * Resize image to max dimension and return base64 JPEG
@@ -113,7 +121,7 @@ const Pages = (() => {
    */
   async function analyzeReceiptWithGemini(base64DataUrl) {
     const settings = Storage.getSettings();
-    const apiKey = settings.geminiApiKey;
+    const apiKey = Storage.isCloudView() ? getDeviceGeminiApiKey() : settings.geminiApiKey;
     if (!apiKey) {
       return { success: false, error: 'API_KEY_MISSING' };
     }
@@ -256,8 +264,13 @@ const Pages = (() => {
     return `
       <div class="page-enter">
         <div class="dashboard-welcome">
+          <div class="dashboard-welcome__text">
           <h1 class="dashboard-welcome__title">📋 ${settings.budgetName || '학급비 정리'}</h1>
           <p class="dashboard-welcome__sub">${settings.schoolName ? settings.schoolName + ' ' : ''}${settings.className ? settings.className + ' · ' : ''}영수증 ${stats.receiptCount}건 관리 중</p>
+          </div>
+          <span class="dashboard-welcome__art" hidden aria-hidden="true">
+            <img src="./public/assets/bosco-budget-hero.png" alt="" decoding="async" onload="this.parentElement.hidden = false" onerror="this.parentElement.hidden = true">
+          </span>
         </div>
 
         <!-- Stat Cards -->
@@ -379,9 +392,24 @@ const Pages = (() => {
   // =====================
   //  ADD RECEIPT PAGE
   // =====================
+  function getReceiptForDisplay(receiptId) {
+    const receipt = Storage.getReceiptById(receiptId);
+    if (!receipt || !Storage.isCloudView()) return receipt;
+    // The existing account panel exposes the signed-in UID. Use it only to
+    // look up this device's attachment, never as a Firestore permission check.
+    const uid = document.getElementById('account-uid')?.textContent?.trim();
+    if (!uid) return { ...receipt };
+    try {
+      const attachment = Storage.getCloudAttachment(uid, receiptId);
+      return attachment ? { ...receipt, imageData: attachment.imageData, imageName: attachment.imageName } : { ...receipt };
+    } catch {
+      return { ...receipt };
+    }
+  }
+
   function renderAddReceipt(editId) {
     const isEdit = !!editId;
-    const receipt = isEdit ? displayRecord(Storage.getReceiptById(editId) || {}) : null;
+    const receipt = isEdit ? displayRecord(getReceiptForDisplay(editId) || {}) : null;
 
     const categoryOptions = Storage.CATEGORIES.map(c =>
       `<option value="${c.id}" ${receipt && receipt.category === c.id ? 'selected' : ''}>${c.icon} ${c.name}</option>`
@@ -435,9 +463,10 @@ const Pages = (() => {
               <textarea id="receipt-memo" class="form-input" placeholder="추가 메모 사항 (선택)">${receipt ? (receipt.memo || '') : ''}</textarea>
             </div>
 
-            ${Storage.isCloudView() ? '<p class="form-hint">클라우드에는 영수증 텍스트만 저장합니다. 첨부파일·OCR은 이 기기 로컬 자료 모드에서 사용해주세요.</p>' : ''}
+            ${Storage.isCloudView() ? '<p class="form-hint">첨부는 저장을 완료하면 이 브라우저에만 보관됩니다. 다른 기기에는 표시되지 않습니다. 기존 첨부는 새 파일을 선택한 경우에만 교체합니다. OCR은 기존처럼 Gemini API를 사용합니다.</p>' : ''}
             <!-- Image Upload -->
-            <div class="form-group" ${Storage.isCloudView() ? 'hidden' : ''}>
+            ${Storage.isCloudView() && isEdit && !receipt?.imageData ? '<p class="form-hint">이 기기에 첨부 없음</p>' : ''}
+            <div class="form-group">
               <label class="form-label">영수증 이미지/PDF (선택)</label>
               <div class="upload-dropzone" id="upload-dropzone">
                 <input type="file" id="receipt-file" accept="image/*,.pdf" style="display:none;">
@@ -487,11 +516,12 @@ const Pages = (() => {
     // Reset pending image
     _pendingImageData = null;
     _pendingImageName = null;
+    _pendingCloudAttachmentChanged = false;
 
     // Load existing image data if editing
     const idField = document.getElementById('receipt-id');
     if (idField) {
-      const existing = Storage.getReceiptById(idField.value);
+      const existing = getReceiptForDisplay(idField.value);
       if (existing && existing.imageData) {
         _pendingImageData = existing.imageData;
         _pendingImageName = existing.imageName || '';
@@ -524,7 +554,7 @@ const Pages = (() => {
     const previewName = document.getElementById('upload-preview-name');
     const btnRemove = document.getElementById('btn-remove-file');
 
-    if (dropzone && fileInput && !Storage.isCloudView()) {
+    if (dropzone && fileInput) {
       // Click to select file
       dropzone.addEventListener('click', (e) => {
         if (e.target.closest('#btn-remove-file')) return;
@@ -557,6 +587,7 @@ const Pages = (() => {
           e.stopPropagation();
           _pendingImageData = null;
           _pendingImageName = null;
+          _pendingCloudAttachmentChanged = false;
           placeholder.style.display = '';
           preview.style.display = 'none';
           fileInput.value = '';
@@ -578,8 +609,10 @@ const Pages = (() => {
 
       try {
         const result = await resizeImage(file);
+        if (!form.isConnected) return;
         _pendingImageData = result.data;
         _pendingImageName = result.name;
+        _pendingCloudAttachmentChanged = true;
 
         if (placeholder && preview && previewImg && previewName) {
           placeholder.style.display = 'none';
@@ -592,6 +625,32 @@ const Pages = (() => {
             previewImg.src = result.data;
           }
         }
+        if (Storage.isCloudView()) {
+          // Attachment is already pending. OCR is optional and must never undo it.
+          App.showToast('첨부가 준비되었습니다. 영수증 저장 시 이 기기에 보관됩니다.', 'info');
+          try {
+            if (!getDeviceGeminiApiKey()) {
+              App.showToast('API Key가 없어 OCR은 건너뜁니다. 영수증 내용을 직접 입력하고 저장해주세요.', 'info');
+              return;
+            }
+            const aiDataUrl = result.aiData || result.data;
+            if (!aiDataUrl || aiDataUrl === 'PDF_FILE') return;
+            if (dropzone) dropzone.classList.add('upload-dropzone--analyzing');
+            const aiResult = await analyzeReceiptWithGemini(aiDataUrl);
+            if (!form.isConnected || _pendingImageData !== result.data || !_pendingCloudAttachmentChanged) return;
+            if (aiResult.success) {
+              fillFormWithAIData(aiResult.data);
+              App.showToast('AI가 영수증을 인식했습니다.', 'success');
+            } else {
+              App.showToast('OCR에 실패했습니다. 첨부는 유지됩니다. 내용을 직접 입력해주세요.', 'warning');
+            }
+          } catch {
+            if (form.isConnected) App.showToast('OCR을 처리하지 못했습니다. 첨부는 유지됩니다. 내용을 직접 입력해주세요.', 'warning');
+          } finally {
+            if (dropzone) dropzone.classList.remove('upload-dropzone--analyzing');
+          }
+          return;
+        }
         App.showToast('파일이 첨부되었습니다. AI 분석 중...', 'info');
 
         // === AI Receipt Recognition ===
@@ -602,6 +661,7 @@ const Pages = (() => {
           if (previewName) previewName.textContent = result.name + ' 🔍 AI 분석 중...';
 
           const aiResult = await analyzeReceiptWithGemini(aiDataUrl);
+          if (!form.isConnected) return;
 
           if (dropzone) dropzone.classList.remove('upload-dropzone--analyzing');
           if (previewName) previewName.textContent = result.name;
@@ -657,8 +717,22 @@ const Pages = (() => {
 
     const data = { date, amount: Number(amount), item, store, category, memo };
 
-    // Attach image data if present
-    if (_pendingImageData) {
+    // Snapshot the selected attachment separately from the Firestore payload.
+    const attachment = cloud && _pendingCloudAttachmentChanged && _pendingImageData
+      ? { imageData: _pendingImageData, imageName: _pendingImageName || '' }
+      : null;
+    let attachmentUid = null;
+    function saveAttachmentAfterSuccess(saved) {
+      if (!attachment || !saved?.id || !attachmentUid) return;
+      try {
+        Storage.saveCloudAttachment(attachmentUid, saved.id, attachment);
+      } catch {
+        // The server write already succeeded: do not report it as a failed save.
+        App.showToast('영수증은 저장되었지만 기기 첨부 저장은 실패했습니다. 저장 공간을 확인한 뒤 수정 화면에서 파일을 다시 선택해주세요.', 'warning');
+      }
+    }
+    // Preserve the original local-mode attachment payload only.
+    if (!cloud && _pendingImageData) {
       data.imageData = _pendingImageData;
       data.imageName = _pendingImageName;
     }
@@ -667,15 +741,25 @@ const Pages = (() => {
     const buttons = form.querySelectorAll('button');
     buttons.forEach(button => { button.disabled = true; });
     try {
+    if (attachment) {
+      const [appSdk, authSdk] = await Promise.all([
+        import('https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js'),
+        import('https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js'),
+      ]);
+      attachmentUid = authSdk.getAuth(appSdk.getApp('classbudget-auth')).currentUser?.uid;
+      if (!attachmentUid || !Storage.isCloudView() || !form.isConnected) return;
+    }
     if (idField) {
       // Edit mode
       const saved = await Storage.updateReceipt(idField.value, data);
+      saveAttachmentAfterSuccess(saved);
       if (!form.isConnected || (cloud && !saved)) return;
       App.showToast('영수증이 수정되었습니다.', 'success');
       window.location.hash = '#/list';
     } else {
       // New
       const saved = await Storage.addReceipt(data);
+      saveAttachmentAfterSuccess(saved);
       if (!form.isConnected || (cloud && !saved)) return;
       App.showToast('영수증이 저장되었습니다!', 'success');
 
@@ -688,6 +772,7 @@ const Pages = (() => {
         // Reset file upload
         _pendingImageData = null;
         _pendingImageName = null;
+        _pendingCloudAttachmentChanged = false;
         const placeholder = document.getElementById('upload-placeholder');
         const preview = document.getElementById('upload-preview');
         if (placeholder) placeholder.style.display = '';
@@ -780,9 +865,9 @@ const Pages = (() => {
   function renderReceiptRows(receipts) {
     if (receipts.length === 0) return '';
     return receipts.map(r => {
-      r = displayRecord(r);
+      r = displayRecord(Storage.isCloudView() ? (getReceiptForDisplay(r.id) || r) : r);
       const cat = getCategoryInfo(r.category);
-      let attachCol = '<td style="text-align:center;color:var(--color-text-muted);">-</td>';
+      let attachCol = `<td style="text-align:center;color:var(--color-text-muted);">${Storage.isCloudView() ? '이 기기에 첨부 없음' : '-'}</td>`;
       if (r.imageData && r.imageData !== 'PDF_FILE') {
         attachCol = `<td style="text-align:center;"><img src="${r.imageData}" alt="영수증" class="receipt-thumb" data-id="${r.id}" style="width:36px;height:36px;object-fit:cover;border-radius:var(--radius-sm);cursor:pointer;border:1px solid var(--color-border);"></td>`;
       } else if (r.imageData === 'PDF_FILE') {
@@ -901,7 +986,27 @@ const Pages = (() => {
           const cloud = Storage.isCloudView();
           btn.disabled = true;
           try {
+          let attachmentUid = null;
+          if (cloud) {
+            const [appSdk, authSdk] = await Promise.all([
+              import('https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js'),
+              import('https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js'),
+            ]);
+            attachmentUid = authSdk.getAuth(appSdk.getApp('classbudget-auth')).currentUser?.uid;
+            if (!attachmentUid || !Storage.isCloudView()) {
+              throw new Error('account-changed');
+            }
+          }
           const deleted = await Storage.deleteReceipt(id);
+          if (cloud && deleted && attachmentUid) {
+            try {
+              Storage.deleteCloudAttachment(attachmentUid, id);
+            } catch {
+              App.showToast('영수증은 삭제되었지만 이 기기의 첨부를 삭제하지 못했습니다.', 'warning');
+              if (btn.isConnected) App.navigate(window.location.hash);
+              return;
+            }
+          }
           if (!btn.isConnected || (cloud && !deleted)) return;
           App.showToast('영수증이 삭제되었습니다.', 'warning');
           App.navigate(window.location.hash);
@@ -915,7 +1020,7 @@ const Pages = (() => {
     // Image thumbnail clicks
     document.querySelectorAll('.receipt-thumb').forEach(thumb => {
       thumb.addEventListener('click', () => {
-        const receipt = Storage.getReceiptById(thumb.dataset.id);
+        const receipt = getReceiptForDisplay(thumb.dataset.id);
         if (receipt && receipt.imageData) {
           showImageModal(receipt.imageData, receipt.imageName || receipt.item);
         }
