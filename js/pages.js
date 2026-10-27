@@ -206,16 +206,17 @@ const Pages = (() => {
   }
 
   /**
-   * 구글 Gemini API에서 현재 계정이 사용 가능한 최신 모델 목록을 실시간 자동 감지
-   * (선생님이 모델명을 수동으로 찾거나 업데이트할 필요가 없도록 완전 자동화)
+   * 구글 Gemini API에서 현재 계정이 사용 가능한 모델 중
+   * 영수증 OCR에 최적화된 경제적이고 가벼운 하위 모델(Lite, 경량 Flash)을 우선 자동 선택합니다.
+   * 무거운 최상위/Pro 모델은 배제하여 API 사용량(쿼터)과 속도를 최적화합니다.
    */
   async function getAvailableGeminiModels(apiKey) {
-    // 검증된 고속 안정 모델을 1순위에 배치하여 즉각적인 응답성을 보장합니다.
+    // 1. 가볍고 사용량 부담이 적으며 빠른 하위/실용 모델을 1순위에 배치
     const defaultModels = [
       'gemini-2.5-flash',
-      'gemini-3.8-flash',
-      'gemini-3.6-flash',
-      'gemini-3.5-flash-lite'
+      'gemini-3.5-flash-lite',
+      'gemini-2.5-flash-lite',
+      'gemini-3.6-flash'
     ];
 
     try {
@@ -224,16 +225,35 @@ const Pages = (() => {
       const data = await res.json();
       if (!data.models || !Array.isArray(data.models)) return defaultModels;
 
-      // flash 계열 모델 동적 추출 (이미 종료된 1.5, 2.0은 자동 배제)
-      const flashModels = data.models
+      // 경량 모델 추출 (종료된 1.5/2.0 및 무거운 Pro/Deep/Thinking 최상위 모델은 자동 제외)
+      const lightModels = data.models
         .map(m => m.name.replace(/^models\//, ''))
-        .filter(name => name.includes('flash') && !name.includes('embedding') && !name.includes('vision') && !name.includes('1.5') && !name.includes('2.0'));
+        .filter(name => {
+          const lower = name.toLowerCase();
+          return (lower.includes('flash') || lower.includes('lite')) &&
+                 !lower.includes('pro') &&
+                 !lower.includes('deep') &&
+                 !lower.includes('thinking') &&
+                 !lower.includes('embedding') &&
+                 !lower.includes('vision') &&
+                 !lower.includes('1.5') &&
+                 !lower.includes('2.0');
+        });
 
-      if (flashModels.length > 0) {
-        return [...new Set([...defaultModels, ...flashModels])];
+      if (lightModels.length > 0) {
+        // Lite/경량 모델 우선, 그 다음 검증된 안정 모델 순으로 정렬
+        lightModels.sort((a, b) => {
+          const aLite = a.toLowerCase().includes('lite');
+          const bLite = b.toLowerCase().includes('lite');
+          if (aLite && !bLite) return -1;
+          if (!aLite && bLite) return 1;
+          return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+        });
+
+        return [...new Set([...defaultModels, ...lightModels])];
       }
     } catch {
-      // 네트워크 제한 시 기본 최신 목록 사용
+      // 네트워크 제한 시 기본 실용 목록 사용
     }
     return defaultModels;
   }
