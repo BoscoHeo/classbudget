@@ -119,145 +119,11 @@ const Pages = (() => {
     });
   }
 
-  /**
-   * 구글 Gemini API에서 현재 계정이 사용 가능한 최신 모델 목록을 실시간 자동 감지
-   * (선생님이 모델명을 수동으로 찾거나 업데이트할 필요가 없도록 완전 자동화)
-   */
-    /**
-   * 구글 Gemini 통일 호출 엔진 (최신 Interactions API + 레거시 generateContent 듀얼 지원)
-   * 2026년 최신 모델(3.8/3.6/3.5)과 검증된 2.5 모델을 모두 완벽하게 지원합니다.
-   */
-  async function callGeminiAPI(apiKey, model, prompt, mediaData = null, mediaMime = 'image/jpeg') {
-    let lastError = '';
-    let lastStatus = 0;
-
-    // A. 최신 구글 Interactions API 시도 (/v1beta/interactions)
-    try {
-      const inputPayload = mediaData
-        ? [
-            { type: 'text', text: prompt },
-            { type: 'image', data: mediaData, mime_type: mediaMime }
-          ]
-        : prompt;
-
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/interactions?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, input: inputPayload })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        let text = '';
-        if (Array.isArray(data.steps)) {
-          text = data.steps
-            .map(step => Array.isArray(step.content) ? step.content.map(c => c.text || '').join('') : '')
-            .join('\n')
-            .trim();
-        } else if (typeof data.output_text === 'string') {
-          text = data.output_text;
-        }
-        if (text) {
-          return { success: true, text, model, api: 'interactions' };
-        }
-      } else {
-        const err = await res.json().catch(() => ({}));
-        lastError = err?.error?.message || res.statusText;
-        lastStatus = res.status;
-      }
-    } catch (e) {
-      lastError = e.message;
-    }
-
-    // B. 레거시 generateContent API 시도 (/models/..:generateContent)
-    try {
-      const parts = [{ text: prompt }];
-      if (mediaData) {
-        parts.push({
-          inline_data: {
-            mime_type: mediaMime,
-            data: mediaData
-          }
-        });
-      }
-
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts }] })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        if (text) {
-          return { success: true, text, model, api: 'generateContent' };
-        }
-      } else {
-        const err = await res.json().catch(() => ({}));
-        lastError = err?.error?.message || res.statusText;
-        lastStatus = res.status;
-      }
-    } catch (e) {
-      lastError = e.message;
-    }
-
-    return { success: false, error: lastError || '응답을 받지 못했습니다.', status: lastStatus };
-  }
 
   /**
-   * 구글 Gemini API에서 현재 계정이 사용 가능한 모델 중
-   * 영수증 OCR에 최적화된 경제적이고 가벼운 하위 모델(Lite, 경량 Flash)을 우선 자동 선택합니다.
-   * 무거운 최상위/Pro 모델은 배제하여 API 사용량(쿼터)과 속도를 최적화합니다.
+   * Analyze receipt image using Gemini Vision API
+   * 가장 가볍고 경제적인 하위 Flash 모델로 영수증을 즉시 분석합니다.
    */
-  async function getAvailableGeminiModels(apiKey) {
-    // 1. 가볍고 사용량 부담이 적으며 빠른 하위/실용 모델을 1순위에 배치
-    const defaultModels = [
-      'gemini-2.5-flash',
-      'gemini-3.5-flash-lite',
-      'gemini-2.5-flash-lite',
-      'gemini-3.6-flash'
-    ];
-
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-      if (!res.ok) return defaultModels;
-      const data = await res.json();
-      if (!data.models || !Array.isArray(data.models)) return defaultModels;
-
-      // 경량 모델 추출 (종료된 1.5/2.0 및 무거운 Pro/Deep/Thinking 최상위 모델은 자동 제외)
-      const lightModels = data.models
-        .map(m => m.name.replace(/^models\//, ''))
-        .filter(name => {
-          const lower = name.toLowerCase();
-          return (lower.includes('flash') || lower.includes('lite')) &&
-                 !lower.includes('pro') &&
-                 !lower.includes('deep') &&
-                 !lower.includes('thinking') &&
-                 !lower.includes('embedding') &&
-                 !lower.includes('vision') &&
-                 !lower.includes('1.5') &&
-                 !lower.includes('2.0');
-        });
-
-      if (lightModels.length > 0) {
-        // Lite/경량 모델 우선, 그 다음 검증된 안정 모델 순으로 정렬
-        lightModels.sort((a, b) => {
-          const aLite = a.toLowerCase().includes('lite');
-          const bLite = b.toLowerCase().includes('lite');
-          if (aLite && !bLite) return -1;
-          if (!aLite && bLite) return 1;
-          return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-        });
-
-        return [...new Set([...defaultModels, ...lightModels])];
-      }
-    } catch {
-      // 네트워크 제한 시 기본 실용 목록 사용
-    }
-    return defaultModels;
-  }
-
   async function analyzeReceiptWithGemini(base64DataUrl) {
     const settings = Storage.getSettings();
     const apiKey = Storage.isCloudView() ? getDeviceGeminiApiKey() : settings.geminiApiKey;
@@ -291,21 +157,50 @@ const Pages = (() => {
 
 금액이 여러 개 있으면 총 합계(결제금액)를 사용하세요. 정보를 파악할 수 없는 항목은 빈 문자열("")로 남겨두세요. 금액을 파악할 수 없으면 0으로 하세요.`;
 
-    // 구글 계정에서 현재 사용 가능한 최신 Flash 모델 자동 감지 (3.8 > 3.6 > 3.5 > 2.5)
-    // 1.5/2.0 등 종료된 모델은 자동 배제되며, 새로운 모델이 출시되어도 자동 반영됩니다.
-    const modelsToTry = await getAvailableGeminiModels(apiKey);
+    // 가볍고 경제적인 하위 Flash 모델 순차 시도 (최상위/무거운 모델 배제)
+    const modelsToTry = [
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite'
+    ];
 
     for (const model of modelsToTry) {
       try {
-        const result = await callGeminiAPI(apiKey, model, prompt, base64Data, mimeType);
-        if (!result.success) {
-          if (result.status === 401 || result.status === 403 || (result.error && result.error.includes('API_KEY_INVALID'))) {
-            return { success: false, error: '유효하지 않은 API 키입니다. 키를 다시 확인해주세요.' };
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: prompt },
+                  {
+                    inline_data: {
+                      mime_type: mimeType,
+                      data: base64Data
+                    }
+                  }
+                ]
+              }]
+            }),
+            signal: controller.signal
           }
-          continue; // 다른 모델 자동 시도
+        );
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          if (response.status === 404 || response.status === 400) continue;
+          const errMsg = errData?.error?.message || response.statusText;
+          return { success: false, error: errMsg };
         }
 
-        const text = result.text;
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (!jsonMatch) continue;
 
@@ -321,10 +216,11 @@ const Pages = (() => {
           }
         };
       } catch (err) {
-        continue;
+        if (err.name === 'AbortError') continue;
+        return { success: false, error: err.message };
       }
     }
-    return { success: false, error: '영수증을 인식할 수 있는 AI 모델에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.' };
+    return { success: false, error: '영수증을 인식할 수 있는 AI 모델에 연결하지 못했습니다.' };
   }
 
   /**
@@ -1344,30 +1240,45 @@ const Pages = (() => {
         }
         btnTestKey.disabled = true;
 
-        // 구글 계정에서 현재 사용 가능한 최신 모델 자동 조회
-        const modelsToTry = await getAvailableGeminiModels(key);
+        // 가볍고 빠른 검증된 하위 Flash 모델 순차 테스트 (최상위 무거운 모델 배제)
+        const modelsToTry = [
+          'gemini-2.5-flash',
+          'gemini-2.5-flash-lite'
+        ];
 
         let lastError = '';
         let success = false;
 
         for (const model of modelsToTry) {
-          const result = await callGeminiAPI(key, model, '안녕');
-          if (result.success) {
-            if (statusEl) {
-              statusEl.textContent = `✅ 연결 성공! (${model})`;
-              statusEl.style.color = 'var(--color-success)';
-            }
-            App.showToast(`API 키가 정상 작동합니다! (모델: ${model})`, 'success');
-            success = true;
-            break;
-          } else {
-            lastError = result.error || '연결 실패';
-            // 인증 키 자체가 틀린 경우(401, 403 등)에만 즉시 중단
-            if (result.status === 401 || result.status === 403 || lastError.includes('API_KEY_INVALID')) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8초 타임아웃
+
+            const res = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contents: [{ parts: [{ text: '안녕' }] }] }),
+                signal: controller.signal
+              }
+            );
+            clearTimeout(timeoutId);
+
+            if (res.ok) {
+              if (statusEl) {
+                statusEl.textContent = `✅ 연결 성공! (${model})`;
+                statusEl.style.color = 'var(--color-success)';
+              }
+              App.showToast(`API 키가 정상 작동합니다! (모델: ${model})`, 'success');
+              success = true;
               break;
+            } else {
+              const errData = await res.json().catch(() => ({}));
+              lastError = errData?.error?.message || res.statusText;
             }
-            // 모델 미지원(400, 404 등)은 다음 모델을 계속 시도
-            continue;
+          } catch (err) {
+            lastError = err.name === 'AbortError' ? '요청 시간 초과(8초)' : err.message;
           }
         }
 
@@ -1376,7 +1287,7 @@ const Pages = (() => {
             statusEl.textContent = '❌ 연결 실패';
             statusEl.style.color = 'var(--color-danger)';
           }
-          App.showToast('API 테스트 실패: ' + lastError, 'error');
+          App.showToast('API 테스트 실패: ' + (lastError || '네트워크 오류'), 'error');
         }
 
         btnTestKey.disabled = false;
