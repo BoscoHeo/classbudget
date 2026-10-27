@@ -120,6 +120,41 @@ const Pages = (() => {
   }
 
   /**
+   * 구글 Gemini API에서 현재 계정이 사용 가능한 최신 모델 목록을 실시간 자동 감지
+   * (선생님이 모델명을 수동으로 찾거나 업데이트할 필요가 없도록 완전 자동화)
+   */
+  async function getAvailableGeminiModels(apiKey) {
+    const defaultModels = [
+      'gemini-3.8-flash',
+      'gemini-3.6-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-2.5-flash'
+    ];
+
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+      if (!res.ok) return defaultModels;
+      const data = await res.json();
+      if (!data.models || !Array.isArray(data.models)) return defaultModels;
+
+      // generateContent 지원 및 flash 계열 모델 동적 추출 (1.5, 2.0 등 종료된 구버전은 자동 제외)
+      const flashModels = data.models
+        .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
+        .map(m => m.name.replace(/^models\//, ''))
+        .filter(name => name.includes('flash') && !name.includes('embedding') && !name.includes('vision'));
+
+      if (flashModels.length > 0) {
+        // 버전 숫자가 높은 순서대로 스마트 정렬 (예: 3.8 > 3.6 > 3.5 > 2.5)
+        flashModels.sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
+        return [...new Set([...flashModels, ...defaultModels])];
+      }
+    } catch {
+      // 네트워크 제한 시 기본 최신 목록 사용
+    }
+    return defaultModels;
+  }
+
+  /**
    * Analyze receipt image using Gemini Vision API
    * Returns extracted data: { date, amount, item, store, category }
    */
@@ -156,14 +191,9 @@ const Pages = (() => {
 
 금액이 여러 개 있으면 총 합계(결제금액)를 사용하세요. 정보를 파악할 수 없는 항목은 빈 문자열("")로 남겨두세요. 금액을 파악할 수 없으면 0으로 하세요.`;
 
-    // 구글 Gemini 최신/안정 모델 자동 폴백 체인
-    // 최신 모델부터 순차 시도하므로 사용자가 매번 모델명을 바꿀 필요가 없습니다.
-    const modelsToTry = [
-      'gemini-2.5-flash',
-      'gemini-2.0-flash',
-      'gemini-1.5-flash',
-      'gemini-3-flash-preview'
-    ];
+    // 구글 계정에서 현재 사용 가능한 최신 Flash 모델 자동 감지 (3.8 > 3.6 > 3.5 > 2.5)
+    // 1.5/2.0 등 종료된 모델은 자동 배제되며, 새로운 모델이 출시되어도 자동 반영됩니다.
+    const modelsToTry = await getAvailableGeminiModels(apiKey);
 
     for (const model of modelsToTry) {
       try {
@@ -1244,13 +1274,8 @@ const Pages = (() => {
         }
         btnTestKey.disabled = true;
 
-        // 구글 Gemini 최신/안정 모델 자동 폴백 체인
-        const modelsToTry = [
-          'gemini-2.5-flash',
-          'gemini-2.0-flash',
-          'gemini-1.5-flash',
-          'gemini-3-flash-preview'
-        ];
+        // 구글 계정에서 현재 사용 가능한 최신 모델 자동 조회
+        const modelsToTry = await getAvailableGeminiModels(key);
 
         let lastError = '';
         let success = false;
