@@ -33,6 +33,26 @@ const ExcelExport = (() => {
   }
 
   /**
+   * 나이스/에듀파인 증빙구분 추출 (기본값: 전산자료)
+   */
+  function getProofType(r) {
+    if (r.proofType) return r.proofType;
+    if (r.memo) {
+      const match = r.memo.match(/\[증빙:(.*?)\]/);
+      if (match && match[1]) return match[1].trim();
+    }
+    return '전산자료';
+  }
+
+  /**
+   * 증빙 태그를 제거한 순수 메모 추출
+   */
+  function getCleanMemo(memo) {
+    if (!memo) return '';
+    return memo.replace(/\[증빙:.*?\]/g, '').trim();
+  }
+
+  /**
    * Generate NEIS-style settlement CSV
    */
   function generateSettlementCSV(receipts, settings) {
@@ -61,27 +81,29 @@ const ExcelExport = (() => {
     csv += `"잔액(A-B)","${formatNumber(remaining)}원"\n`;
     csv += `\n`;
 
-    // Detail header
-    csv += `"번호","사용날짜","사용처","사용목적(품명)","분류","사용금액","비고"\n`;
+    // Detail header (나이스/에듀파인 증빙구분 컬럼 포함)
+    csv += `"번호","사용날짜","사용처","사용목적(품명)","분류","증빙구분","사용금액","비고"\n`;
 
     // Detail rows
     const sorted = [...receipts].sort((a, b) => new Date(a.date) - new Date(b.date));
     sorted.forEach((r, i) => {
+      const cleanMemo = getCleanMemo(r.memo);
       const row = [
         i + 1,
         `"${formatDate(r.date)}"`,
         `"${(r.store || '').replace(/"/g, '""')}"`,
         `"${(r.item || '').replace(/"/g, '""')}"`,
         `"${getCategoryName(r.category)}"`,
+        `"${getProofType(r)}"`,
         `"${formatNumber(r.amount)}원"`,
-        `"${(r.memo || '').replace(/"/g, '""')}"`,
+        `"${cleanMemo.replace(/"/g, '""')}"`,
       ];
       csv += row.join(',') + '\n';
     });
 
     // Total row
     csv += `\n`;
-    csv += `"","","","","합계","${formatNumber(totalSpent)}원",""\n`;
+    csv += `"","","","","","합계","${formatNumber(totalSpent)}원",""\n`;
 
     return csv;
   }
@@ -139,9 +161,10 @@ const ExcelExport = (() => {
         const date = formatDate(r.date);
         const store = r.store || '';
         const amount = Number(r.amount) || 0;
-        const proofType = '카드'; // 개산급 정산 시 카드 결제 기본값
-        const memo = r.memo ? ` (${r.memo})` : '';
-        const item = `${r.item || ''}${memo}`;
+        const proofType = getProofType(r);
+        const cleanMemo = getCleanMemo(r.memo);
+        const memoStr = cleanMemo ? ` (${cleanMemo})` : '';
+        const item = `${r.item || ''}${memoStr}`;
         return [date, store, amount, proofType, item];
       });
 
@@ -203,9 +226,10 @@ const ExcelExport = (() => {
       const date = formatDate(r.date);
       const store = (r.store || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const amount = Number(r.amount) || 0;
-      const proofType = '카드';
+      const proofType = getProofType(r);
+      const cleanMemo = getCleanMemo(r.memo);
       const item = (r.item || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const memo = r.memo ? ` (${r.memo.replace(/</g, '&lt;').replace(/>/g, '&gt;')})` : '';
+      const memo = cleanMemo ? ` (${cleanMemo.replace(/</g, '&lt;').replace(/>/g, '&gt;')})` : '';
 
       html += `
 <tr>
@@ -246,18 +270,20 @@ const ExcelExport = (() => {
     }
 
     let csv = '\uFEFF';
-    csv += `"번호","날짜","사용처","품명","분류","금액","메모"\n`;
+    csv += `"번호","날짜","사용처","품명","분류","증빙구분","금액","메모"\n`;
 
     const sorted = [...receipts].sort((a, b) => new Date(a.date) - new Date(b.date));
     sorted.forEach((r, i) => {
+      const cleanMemo = getCleanMemo(r.memo);
       csv += [
         i + 1,
         `"${formatDate(r.date)}"`,
         `"${(r.store || '').replace(/"/g, '""')}"`,
         `"${(r.item || '').replace(/"/g, '""')}"`,
         `"${getCategoryName(r.category)}"`,
+        `"${getProofType(r)}"`,
         `"${formatNumber(r.amount)}"`,
-        `"${(r.memo || '').replace(/"/g, '""')}"`,
+        `"${cleanMemo.replace(/"/g, '""')}"`,
       ].join(',') + '\n';
     });
 

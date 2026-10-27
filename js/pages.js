@@ -21,6 +21,27 @@ const Pages = (() => {
     return Storage.CATEGORIES.find(c => c.id === id) || Storage.CATEGORIES[Storage.CATEGORIES.length - 1];
   }
 
+  // --- 나이스/에듀파인 증빙구분(기본값: 전산자료) 파싱 및 포맷팅 헬퍼 ---
+  function parseProofType(memo) {
+    if (!memo || typeof memo !== 'string') return { proofType: '전산자료', cleanMemo: '' };
+    const match = memo.match(/\[증빙:(.*?)\]/);
+    if (match && match[1]) {
+      return {
+        proofType: match[1].trim() || '전산자료',
+        cleanMemo: memo.replace(/\[증빙:.*?\]/g, '').trim()
+      };
+    }
+    return { proofType: '전산자료', cleanMemo: memo.trim() };
+  }
+
+  function formatMemoWithProofType(memo, proofType) {
+    const clean = (memo || '').replace(/\[증빙:.*?\]/g, '').trim();
+    if (proofType && proofType !== '전산자료') {
+      return clean ? `${clean} [증빙:${proofType}]` : `[증빙:${proofType}]`;
+    }
+    return clean;
+  }
+
   // Temporary storage for uploaded image data (base64)
   let _pendingImageData = null;
   let _pendingImageName = null;
@@ -417,6 +438,9 @@ const Pages = (() => {
   function renderAddReceipt(editId) {
     const isEdit = !!editId;
     const receipt = isEdit ? displayRecord(getReceiptForDisplay(editId) || {}) : null;
+    const memoParsed = parseProofType(receipt ? receipt.memo : '');
+    const currentProofType = receipt?.proofType || memoParsed.proofType;
+    const currentCleanMemo = memoParsed.cleanMemo;
 
     const categoryOptions = Storage.CATEGORIES.map(c =>
       `<option value="${c.id}" ${receipt && receipt.category === c.id ? 'selected' : ''}>${c.icon} ${c.name}</option>`
@@ -458,16 +482,29 @@ const Pages = (() => {
               </div>
             </div>
 
-            <div class="form-group">
-              <label class="form-label" for="receipt-category">분류</label>
-              <select id="receipt-category" class="form-input">
-                ${categoryOptions}
-              </select>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label" for="receipt-category">분류</label>
+                <select id="receipt-category" class="form-input">
+                  ${categoryOptions}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="receipt-proof-type">증빙구분 <span>(나이스 정산)</span></label>
+                <select id="receipt-proof-type" class="form-input">
+                  <option value="전산자료" ${(!receipt || currentProofType === '전산자료') ? 'selected' : ''}>전산자료 (카드영수증, 온라인 등)</option>
+                  <option value="세금계산서" ${receipt && currentProofType === '세금계산서' ? 'selected' : ''}>세금계산서</option>
+                  <option value="계산서" ${receipt && currentProofType === '계산서' ? 'selected' : ''}>계산서</option>
+                  <option value="현금영수증" ${receipt && currentProofType === '현금영수증' ? 'selected' : ''}>현금영수증</option>
+                  <option value="간이영수증" ${receipt && currentProofType === '간이영수증' ? 'selected' : ''}>간이영수증</option>
+                  <option value="기타" ${receipt && currentProofType === '기타' ? 'selected' : ''}>기타</option>
+                </select>
+              </div>
             </div>
 
             <div class="form-group">
               <label class="form-label" for="receipt-memo">메모</label>
-              <textarea id="receipt-memo" class="form-input" placeholder="추가 메모 사항 (선택)">${receipt ? (receipt.memo || '') : ''}</textarea>
+              <textarea id="receipt-memo" class="form-input" placeholder="추가 메모 사항 (선택)">${receipt ? currentCleanMemo : ''}</textarea>
             </div>
 
             ${Storage.isCloudView() ? '<p class="form-hint">첨부는 저장을 완료하면 이 브라우저에만 보관됩니다. 다른 기기에는 표시되지 않습니다. 기존 첨부는 새 파일을 선택한 경우에만 교체합니다. OCR은 기존처럼 Gemini API를 사용합니다.</p>' : ''}
@@ -715,7 +752,9 @@ const Pages = (() => {
     const item = document.getElementById('receipt-item').value.trim();
     const store = document.getElementById('receipt-store').value.trim();
     const category = document.getElementById('receipt-category').value;
-    const memo = document.getElementById('receipt-memo').value.trim();
+    const rawMemo = document.getElementById('receipt-memo').value.trim();
+    const proofType = document.getElementById('receipt-proof-type')?.value || '전산자료';
+    const memo = formatMemoWithProofType(rawMemo, proofType);
 
     if (!date || !amount || !item) {
       App.showToast('날짜, 금액, 품명은 필수 입력입니다.', 'error');
@@ -847,6 +886,7 @@ const Pages = (() => {
                   <th>품명</th>
                   <th>사용처</th>
                   <th>분류</th>
+                  <th>증빙구분</th>
                   <th>첨부</th>
                   <th>금액</th>
                   <th>관리</th>
@@ -880,12 +920,16 @@ const Pages = (() => {
       } else if (r.imageData === 'PDF_FILE') {
         attachCol = `<td style="text-align:center;"><span class="badge badge--red" style="cursor:default;" title="${r.imageName || 'PDF'}">📄 PDF</span></td>`;
       }
+      const memoInfo = parseProofType(r.memo);
+      const proofType = r.proofType || memoInfo.proofType || '전산자료';
+      const displayMemo = memoInfo.cleanMemo;
       return `
         <tr data-id="${r.id}">
           <td>${fmtDate(r.date)}</td>
-          <td><strong>${r.item || '(미입력)'}</strong>${r.memo ? `<br><small style="color:var(--color-text-muted)">${r.memo}</small>` : ''}</td>
+          <td><strong>${r.item || '(미입력)'}</strong>${displayMemo ? `<br><small style="color:var(--color-text-muted)">${displayMemo}</small>` : ''}</td>
           <td>${r.store || '-'}</td>
           <td><span class="badge badge--${cat.color}">${cat.icon} ${cat.name}</span></td>
+          <td><span class="badge badge--gray" style="font-weight:500;">${proofType}</span></td>
           ${attachCol}
           <td class="table__amount">${fmt(r.amount)}원</td>
           <td>
