@@ -174,12 +174,36 @@ const Storage = (() => {
     return getReceipts().find(r => r.id === id) || null;
   }
 
+  // --- 기기 전용 로컬 Gemini API 키 관리 (클라우드로 절대 유출되지 않고 브라우저에만 보관) ---
+  function getDeviceGeminiApiKey() {
+    try {
+      const data = localStorage.getItem(KEYS.SETTINGS);
+      if (!data) return '';
+      const parsed = JSON.parse(data);
+      return typeof parsed.geminiApiKey === 'string' ? parsed.geminiApiKey : '';
+    } catch {
+      return '';
+    }
+  }
+
+  function saveDeviceGeminiApiKey(key) {
+    try {
+      const data = localStorage.getItem(KEYS.SETTINGS);
+      const parsed = data ? JSON.parse(data) : { ...DEFAULT_SETTINGS };
+      parsed.geminiApiKey = typeof key === 'string' ? key.trim() : '';
+      localStorage.setItem(KEYS.SETTINGS, JSON.stringify(parsed));
+    } catch (e) {
+      console.error('로컬 API 키 저장 실패:', e);
+    }
+  }
+
   // --- Settings ---
   function getSettings() {
     if (cloudView) {
       return {
         ...structuredClone(cloudView.general),
-        geminiApiKey: '',
+        // 클라우드 모드에서도 이 기기에 저장된 API 키를 안전하게 불러와 설정에 반영합니다.
+        geminiApiKey: getDeviceGeminiApiKey(),
       };
     }
 
@@ -202,6 +226,11 @@ const Storage = (() => {
   }
 
   function saveSettings(settings) {
+    // API 키가 전달된 경우, 클라우드 모드 여부와 상관없이 항상 현재 기기의 브라우저에 안전하게 저장합니다.
+    if (settings && typeof settings.geminiApiKey === 'string') {
+      saveDeviceGeminiApiKey(settings.geminiApiKey);
+    }
+
     if (cloudView) {
       if (!cloudSettingsWriter) {
         throw new Error(
@@ -406,6 +435,8 @@ const Storage = (() => {
     updateReceipt,
     deleteReceipt,
     getReceiptById,
+    getDeviceGeminiApiKey,
+    saveDeviceGeminiApiKey,
     getSettings,
     saveSettings,
     getStats,

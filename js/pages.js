@@ -27,6 +27,10 @@ const Pages = (() => {
   let _pendingCloudAttachmentChanged = false;
 
   function getDeviceGeminiApiKey() {
+    if (typeof Storage !== 'undefined' && typeof Storage.getDeviceGeminiApiKey === 'function') {
+      const storedKey = Storage.getDeviceGeminiApiKey();
+      if (storedKey) return storedKey;
+    }
     try {
       const settings = JSON.parse(localStorage.getItem('classbudget_settings') || '{}');
       return typeof settings.geminiApiKey === 'string' ? settings.geminiApiKey : '';
@@ -152,8 +156,14 @@ const Pages = (() => {
 
 금액이 여러 개 있으면 총 합계(결제금액)를 사용하세요. 정보를 파악할 수 없는 항목은 빈 문자열("")로 남겨두세요. 금액을 파악할 수 없으면 0으로 하세요.`;
 
-    // Try multiple models for compatibility (2026.03 updated)
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-3-flash-preview'];
+    // 구글 Gemini 최신/안정 모델 자동 폴백 체인
+    // 최신 모델부터 순차 시도하므로 사용자가 매번 모델명을 바꿀 필요가 없습니다.
+    const modelsToTry = [
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-1.5-flash',
+      'gemini-3-flash-preview'
+    ];
 
     for (const model of modelsToTry) {
       try {
@@ -1211,7 +1221,11 @@ const Pages = (() => {
         const key = document.getElementById('setting-gemini-key').value.trim();
         const current = Storage.getSettings();
         Storage.saveSettings({ ...current, geminiApiKey: key });
-        App.showToast(key ? 'API 키가 저장되었습니다.' : 'API 키가 삭제되었습니다.', 'success');
+        // 클라우드/로컬 환경 모두 브라우저에 안전하게 즉시 동기화
+        if (typeof Storage.saveDeviceGeminiApiKey === 'function') {
+          Storage.saveDeviceGeminiApiKey(key);
+        }
+        App.showToast(key ? 'API 키가 안전하게 저장되었습니다.' : 'API 키가 삭제되었습니다.', 'success');
       });
     }
 
@@ -1230,9 +1244,11 @@ const Pages = (() => {
         }
         btnTestKey.disabled = true;
 
-        // Try multiple model names for compatibility (2026.03 updated)
+        // 구글 Gemini 최신/안정 모델 자동 폴백 체인
         const modelsToTry = [
           'gemini-2.5-flash',
+          'gemini-2.0-flash',
+          'gemini-1.5-flash',
           'gemini-3-flash-preview'
         ];
 
