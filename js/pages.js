@@ -157,8 +157,9 @@ const Pages = (() => {
 
 금액이 여러 개 있으면 총 합계(결제금액)를 사용하세요. 정보를 파악할 수 없는 항목은 빈 문자열("")로 남겨두세요. 금액을 파악할 수 없으면 0으로 하세요.`;
 
-    // 가볍고 경제적인 하위 Flash 모델 순차 시도 (최상위/무거운 모델 배제)
+    // 신규 발급 키 공식 지원 최신 경량 모델(3.5-flash-lite) 및 하위 호환 모델 순차 시도
     const modelsToTry = [
+      'gemini-3.5-flash-lite',
       'gemini-2.5-flash',
       'gemini-2.5-flash-lite'
     ];
@@ -1240,8 +1241,9 @@ const Pages = (() => {
         }
         btnTestKey.disabled = true;
 
-        // 가볍고 빠른 검증된 하위 Flash 모델 순차 테스트 (최상위 무거운 모델 배제)
+        // 신규 발급 키 공식 지원 최신 경량 모델(3.5-flash-lite) 및 하위 호환 모델 순차 테스트
         const modelsToTry = [
+          'gemini-3.5-flash-lite',
           'gemini-2.5-flash',
           'gemini-2.5-flash-lite'
         ];
