@@ -4,6 +4,58 @@
  */
 
 const Storage = (() => {
+  let activeUid = null;
+  let memoryKey = '';
+  let generation = 0;
+  let localLocked = localStorage.getItem('classbudget_local_locked') === '1';
+  const keyFlag = () => 'classbudget_key_remember:' + (activeUid || 'local');
+  const scopeKey = name => activeUid ? 'classbudget_user:' + encodeURIComponent(activeUid) + ':' + name : 'classbudget_' + name;
+  function isLocked() { return !activeUid && localLocked; }
+  function switchAccount(uid) {
+    const next = uid || null;
+    if (activeUid === next) return;
+    try {
+      if (activeUid) clearAccount(activeUid);
+      // Clear the legacy/device key too, without deleting local-only receipts.
+      const legacy = localStorage.getItem('classbudget_settings');
+      if (legacy) {
+        const settings = JSON.parse(legacy); delete settings.geminiApiKey;
+        localStorage.setItem('classbudget_settings', JSON.stringify(settings));
+      }
+      localStorage.removeItem('classbudget_key_remember:local');
+      localStorage.setItem('classbudget_local_locked', '1');
+    } finally {
+      memoryKey = ''; generation++; activeUid = next; localLocked = true;
+      KEYS.RECEIPTS = scopeKey('receipts'); KEYS.SETTINGS = scopeKey('settings');
+      setCloudView(null);
+    }
+  }
+  function clearAccount(uid) {
+    const prefix = 'classbudget_user:' + encodeURIComponent(uid) + ':';
+    const attachments = 'classbudget_cloud_attachment:' + encodeURIComponent(uid) + ':';
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(prefix) || k.startsWith(attachments) || k === 'classbudget_key_remember:' + uid);
+    keys.forEach(k => localStorage.removeItem(k));
+  }
+  function resumeLocalOnly() {
+    if (activeUid) throw new Error('로그인 중에는 로컬 전용 자료를 열 수 없습니다.');
+    localLocked = false; localStorage.removeItem('classbudget_local_locked'); generation++;
+  }
+  function migrationStorage() {
+    const uid = activeUid, ticket = generation;
+    return { getItem(key) {
+      if (uid !== activeUid || ticket !== generation || isLocked()) throw new Error('계정이 변경되었습니다.');
+      if (key === 'classbudget_receipts') return localStorage.getItem(KEYS.RECEIPTS);
+      if (key === 'classbudget_settings') return localStorage.getItem(KEYS.SETTINGS);
+      return null;
+    }};
+  }
+  window.addEventListener('storage', event => {
+    if (event.key === 'classbudget_local_locked' && event.newValue === '1' && !activeUid) {
+      localLocked = true; memoryKey = ''; generation++;
+      if (typeof Pages !== 'undefined') Pages.resetSensitiveState(true);
+      if (typeof App !== 'undefined') App.navigate(window.location.hash);
+    }
+  });
   // Device-local attachments only. These helpers do not call cloud CRUD.
   function cloudAttachmentKey(uid, receiptId) {
     if (typeof uid !== 'string' || !uid.trim() ||
@@ -15,6 +67,7 @@ const Storage = (() => {
   }
 
   function saveCloudAttachment(uid, receiptId, attachment) {
+    if (uid !== activeUid) throw new Error('현재 계정의 첨부만 저장할 수 있습니다.');
     const key = cloudAttachmentKey(uid, receiptId);
     if (!attachment || typeof attachment.imageData !== 'string' ||
         typeof attachment.imageName !== 'string') {
@@ -28,6 +81,7 @@ const Storage = (() => {
   }
 
   function getCloudAttachment(uid, receiptId) {
+    if (uid !== activeUid) return null;
     const raw = localStorage.getItem(cloudAttachmentKey(uid, receiptId));
     if (raw === null) return null;
     try {
@@ -44,6 +98,7 @@ const Storage = (() => {
   }
 
   function deleteCloudAttachment(uid, receiptId) {
+    if (uid !== activeUid) throw new Error('계정이 변경되었습니다.');
     localStorage.removeItem(cloudAttachmentKey(uid, receiptId));
   }
 
@@ -69,6 +124,7 @@ const Storage = (() => {
   }
 
   function requireLocal() {
+    if (isLocked()) throw new Error('로컬 전용 자료 열기를 먼저 확인해주세요.');
     if (cloudView) {
       throw new Error(
         '현재 클라우드 자료를 사용 중입니다. 이 기기 로컬 자료로 전환해주세요.'
@@ -103,6 +159,7 @@ const Storage = (() => {
 
   // --- Receipts ---
   function getReceipts() {
+    if (isLocked()) return [];
     if (cloudView) {
       return structuredClone(cloudView.receipts);
     }
@@ -178,29 +235,34 @@ const Storage = (() => {
 
   // --- 기기 전용 로컬 Gemini API 키 관리 (클라우드로 절대 유출되지 않고 브라우저에만 보관) ---
   function getDeviceGeminiApiKey() {
-    try {
-      const data = localStorage.getItem(KEYS.SETTINGS);
-      if (!data) return '';
-      const parsed = JSON.parse(data);
-      return typeof parsed.geminiApiKey === 'string' ? parsed.geminiApiKey : '';
-    } catch {
-      return '';
+    if (isLocked()) return '';
+    if (memoryKey) return memoryKey;
+    const raw = localStorage.getItem(KEYS.SETTINGS);
+    const settings = raw ? JSON.parse(raw) : {};
+    memoryKey = typeof settings.geminiApiKey === 'string' ? settings.geminiApiKey : '';
+    if (memoryKey && localStorage.getItem(keyFlag()) !== '1') {
+      // Migrate legacy persistent keys to this tab's memory, preserving all other data.
+      delete settings.geminiApiKey;
+      localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
     }
+    return memoryKey;
   }
-
-  function saveDeviceGeminiApiKey(key) {
-    try {
-      const data = localStorage.getItem(KEYS.SETTINGS);
-      const parsed = data ? JSON.parse(data) : { ...DEFAULT_SETTINGS };
-      parsed.geminiApiKey = typeof key === 'string' ? key.trim() : '';
-      localStorage.setItem(KEYS.SETTINGS, JSON.stringify(parsed));
-    } catch (e) {
-      console.error('로컬 API 키 저장 실패:', e);
-    }
+  function isKeyRemembered() { return localStorage.getItem(keyFlag()) === '1'; }
+  function saveDeviceGeminiApiKey(key, remember = isKeyRemembered()) {
+    if (isLocked()) throw new Error('로컬 자료가 잠겨 있습니다.');
+    const raw = localStorage.getItem(KEYS.SETTINGS);
+    const settings = raw ? JSON.parse(raw) : {};
+    delete settings.geminiApiKey;
+    if (remember && key) settings.geminiApiKey = String(key).trim();
+    localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
+    if (remember && key) localStorage.setItem(keyFlag(), '1');
+    else localStorage.removeItem(keyFlag());
+    memoryKey = typeof key === 'string' ? key.trim() : '';
   }
 
   // --- Settings ---
   function getSettings() {
+    if (isLocked()) return { ...DEFAULT_SETTINGS };
     if (cloudView) {
       return {
         ...structuredClone(cloudView.general),
@@ -216,6 +278,7 @@ const Storage = (() => {
         ? {
             ...DEFAULT_SETTINGS,
             ...JSON.parse(data),
+            geminiApiKey: getDeviceGeminiApiKey(),
           }
         : {
             ...DEFAULT_SETTINGS,
@@ -266,7 +329,7 @@ const Storage = (() => {
 
     localStorage.setItem(
       KEYS.SETTINGS,
-      JSON.stringify(settings)
+      JSON.stringify({ ...settings, geminiApiKey: isKeyRemembered() ? getDeviceGeminiApiKey() : '' })
     );
   }
 
@@ -358,7 +421,7 @@ const Storage = (() => {
     try {
       previousReceipts = localStorage.getItem(KEYS.RECEIPTS);
       const settingsJSON = data.settings === undefined ? null : JSON.stringify({
-        ...getSettings(), ...data.settings, geminiApiKey: getDeviceGeminiApiKey(),
+        ...getSettings(), ...data.settings, geminiApiKey: isKeyRemembered() ? getDeviceGeminiApiKey() : '',
       });
       const receiptsJSON = data.receipts === undefined ? null : JSON.stringify(data.receipts);
       if (receiptsJSON !== null) {
@@ -383,6 +446,8 @@ const Storage = (() => {
   function clearAll() {
     requireLocal();
 
+    memoryKey = ''; localStorage.removeItem(keyFlag());
+    if (activeUid) clearAccount(activeUid);
     localStorage.removeItem(
       KEYS.RECEIPTS
     );
@@ -423,6 +488,9 @@ const Storage = (() => {
   }
 
   return {
+    switchAccount, resumeLocalOnly, isLocked, migrationStorage, isKeyRemembered,
+    sessionVersion: () => generation,
+    currentUid: () => activeUid,
     saveCloudAttachment,
     getCloudAttachment,
     deleteCloudAttachment,

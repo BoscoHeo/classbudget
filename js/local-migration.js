@@ -78,6 +78,7 @@ export function attachMigration({ app, auth }) {
   let pending = null;
   let busy = false;
   function render(user) {
+    pending = null; panel.hidden = true; summary.textContent = '';
     button.hidden = !user;
     button.disabled = busy;
     confirm.disabled = busy;
@@ -100,7 +101,7 @@ export function attachMigration({ app, auth }) {
         status.textContent = '이 계정은 이미 최초 이전이 완료되었습니다.';
         return;
       }
-      pending = { uid: user.uid, snapshot: readLocalSnapshot(localStorage) };
+      pending = { uid: user.uid, snapshot: readLocalSnapshot(Storage.migrationStorage()) };
       summary.textContent = `${user.email || user.displayName || '현재 Google 계정'} 계정으로 로컬 영수증 ${pending.snapshot.receipts.length}건과 일반 설정을 최초 이전합니다.`;
       panel.hidden = false;
       status.textContent = '';
@@ -122,7 +123,7 @@ export function attachMigration({ app, auth }) {
     status.textContent = '서버의 기존 자료를 확인하고 최초 이전 중입니다. 창을 닫지 마세요.';
     try {
       const sdk = await import('https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js');
-      await migrateLocalSnapshot({ sdk, db: sdk.getFirestore(app), auth, storage: localStorage, ...request });
+      await migrateLocalSnapshot({ sdk, db: sdk.getFirestore(app), auth, storage: Storage.migrationStorage(), ...request });
       status.textContent = '확인한 계정으로 최초 이전이 완료되었습니다. 로컬 원본은 그대로입니다. 이후 수정은 자동 동기화되지 않습니다.';
     } catch (error) {
       status.textContent = error.code ? '이전을 확인하지 못했습니다. 네트워크와 Firestore Rules를 확인해주세요. 로컬 원본은 그대로이며, 재시도 시 서버 자료가 있으면 중단합니다.' : error.message;

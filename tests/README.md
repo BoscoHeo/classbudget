@@ -11,6 +11,11 @@ $env:NODE_PATH = "$env:TEMP/classbudget-sec2-tests/node_modules"
 node --test tests/sec2.test.cjs
 # Chrome must be installed; set CHROME_PATH if it is elsewhere.
 node tests/sec2-browser.cjs
+node --test tests/sec3b.test.cjs
+node tests/sec3b-browser.cjs
+# Java 21+ and the cached Firestore Emulator JAR are required.
+# Set FIRESTORE_EMULATOR_JAR if it is not under ~/.cache/firebase/emulators/.
+node tests/sec3b-rules.cjs
 ```
 
 The browser test uses a fresh temporary browser context, intercepts all network
@@ -22,3 +27,8 @@ The DOM suite verifies restoration rollback on a simulated storage quota failure
 schema rejection without mutation, legacy roundtrips, UI actions, CSV quoting and
 formula defenses, real SheetJS XLSX write/read, and the HTML XLS fallback.
 It does not automate Microsoft Excel, K-Edufine, Firebase sign-in or live Firestore.
+
+SEC-3B uses the real application authentication/migration/cloud-reader modules
+with synthetic SDK modules to test login/logout, not actual Google accounts.
+Its Rules test starts only a `demo-` project on localhost and loads the separate
+candidate. It never reads credentials or writes to a production database.

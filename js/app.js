@@ -92,6 +92,16 @@ const App = (() => {
       return;
     }
 
+    Pages.resetSensitiveState();
+    if (Storage.isLocked()) {
+      appEl.innerHTML = '<div class="card"><h1>로그아웃되었습니다.</h1><p>계정의 기기 자료와 API 키를 정리했습니다. 클라우드 문서는 삭제하지 않았습니다.</p><p>기존 로컬 전용 자료는 별도로 보존됩니다. 공용 PC에서는 다른 사람의 자료를 열지 마세요.</p><button class="btn btn--secondary" id="resume-local">로컬 전용 자료 열기</button></div>';
+      document.getElementById('resume-local').onclick = () => {
+        if (confirm('이 브라우저의 기존 로컬 전용 자료를 엽니다. 본인 전용 브라우저이거나 본인 자료인지 확인했습니까?')) {
+          Storage.resumeLocalOnly(); navigate('#/');
+        }
+      };
+      return;
+    }
     appEl.innerHTML =
       route.render();
 
@@ -111,7 +121,7 @@ const App = (() => {
         .forEach(section => {
           if (
             section.querySelector(
-              '#setting-gemini-key, #btn-clear-all'
+              '#btn-clear-all'
             ) ||
             section.textContent.includes(
               '로컬 데이터 보관 안내'

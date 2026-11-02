@@ -47,15 +47,20 @@ const Pages = (() => {
   let _pendingImageName = null;
   let _pendingCloudAttachmentChanged = false;
 
-  function getDeviceGeminiApiKey() {
-    if (typeof Storage !== 'undefined' && typeof Storage.getDeviceGeminiApiKey === 'function') {
-      const storedKey = Storage.getDeviceGeminiApiKey();
-      if (storedKey) return storedKey;
-    }
-    try {
-      const settings = JSON.parse(localStorage.getItem('classbudget_settings') || '{}');
-      return typeof settings.geminiApiKey === 'string' ? settings.geminiApiKey : '';
-    } catch { return ''; }
+  function getDeviceGeminiApiKey() { return Storage.getDeviceGeminiApiKey(); }
+  let pendingAI = null, pageVersion = 0, selectionVersion = 0;
+  const requests = new Set();
+  function stopAI() { requests.forEach(controller => controller.abort()); requests.clear(); }
+  function resetSensitiveState(clearNotifications = false) {
+    stopAI(); pendingAI = null; pageVersion++; selectionVersion++;
+    _pendingImageData = null; _pendingImageName = null; _pendingCloudAttachmentChanged = false;
+    if (clearNotifications) document.getElementById('toast-container')?.replaceChildren();
+    document.querySelectorAll('#app img, #image-modal-overlay img').forEach(img => {
+      if (img.getAttribute('src')?.startsWith('blob:')) URL.revokeObjectURL(img.getAttribute('src'));
+      img.removeAttribute('src');
+    });
+    document.getElementById('image-modal-overlay')?.remove();
+    document.querySelectorAll('#app input[type=file]').forEach(input => { input.value = ''; });
   }
 
   /**
@@ -145,7 +150,7 @@ const Pages = (() => {
    * Analyze receipt image using Gemini Vision API
    * 가장 가볍고 경제적인 하위 Flash 모델로 영수증을 즉시 분석합니다.
    */
-  async function analyzeReceiptWithGemini(base64DataUrl) {
+  async function analyzeReceiptWithGemini(base64DataUrl, signal) {
     const settings = Storage.getSettings();
     const apiKey = Storage.isCloudView() ? getDeviceGeminiApiKey() : settings.geminiApiKey;
     if (!apiKey) {
@@ -186,9 +191,14 @@ const Pages = (() => {
     ];
 
     for (const model of modelsToTry) {
+      if (signal?.aborted) return { success: false, error: 'CANCELLED' };
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      signal?.addEventListener('abort', cancel, { once: true });
+      requests.add(controller);
+      let timeoutId;
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 20000);
+        timeoutId = setTimeout(() => controller.abort(), 20000);
 
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -238,9 +248,10 @@ const Pages = (() => {
           }
         };
       } catch (err) {
+        if (signal?.aborted) return { success: false, error: 'CANCELLED' };
         if (err.name === 'AbortError') continue;
         return { success: false, error: err.message };
-      }
+      } finally { clearTimeout(timeoutId); requests.delete(controller); signal?.removeEventListener('abort', cancel); }
     }
     return { success: false, error: '영수증을 인식할 수 있는 AI 모델에 연결하지 못했습니다.' };
   }
@@ -527,6 +538,11 @@ const Pages = (() => {
                   </div>
                 </div>
               </div>
+              <div id="ai-consent" hidden>
+                <p class="form-hint">AI 인식 실행 시 축소한 이미지 전체 또는 선택한 PDF 전체를 Google Gemini로 전송합니다. 이름·연락처·계좌 등 개인정보를 가린 파일만 사용하세요. 파일 선택만으로는 전송하지 않습니다. 취소 후에도 이미 전송된 자료를 회수할 수는 없습니다.</p>
+                <button type="button" class="btn btn--primary btn--sm" id="btn-run-ai">외부 AI로 전송하여 인식</button>
+                <button type="button" class="btn btn--secondary btn--sm" id="btn-cancel-ai">AI 인식 취소</button>
+              </div>
               ${receipt && receipt.imageData && receipt.imageData !== 'PDF_FILE' ? `
                 <div class="upload-existing" style="margin-top:var(--space-sm);">
                   <p style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-bottom:var(--space-xs);">현재 첨부된 이미지:</p>
@@ -629,6 +645,9 @@ const Pages = (() => {
       if (btnRemove) {
         btnRemove.addEventListener('click', (e) => {
           e.stopPropagation();
+          stopAI(); selectionVersion++; pendingAI = null;
+          document.getElementById('ai-consent').hidden = true;
+          previewImg.removeAttribute('src');
           _pendingImageData = null;
           _pendingImageName = null;
           _pendingCloudAttachmentChanged = false;
@@ -652,8 +671,11 @@ const Pages = (() => {
       }
 
       try {
+        stopAI(); pendingAI = null;
+        const ticket = ++selectionVersion, page = pageVersion;
+        document.getElementById('ai-consent').hidden = true;
         const result = await resizeImage(file);
-        if (!form.isConnected) return;
+        if (!form.isConnected || ticket !== selectionVersion || page !== pageVersion) return;
         _pendingImageData = result.data;
         _pendingImageName = result.name;
         _pendingCloudAttachmentChanged = true;
@@ -669,60 +691,36 @@ const Pages = (() => {
             previewImg.src = result.data;
           }
         }
-        if (Storage.isCloudView()) {
-          // Attachment is already pending. OCR is optional and must never undo it.
-          App.showToast('첨부가 준비되었습니다. 영수증 저장 시 이 기기에 보관됩니다.', 'info');
-          try {
-            if (!getDeviceGeminiApiKey()) {
-              App.showToast('API Key가 없어 OCR은 건너뜁니다. 영수증 내용을 직접 입력하고 저장해주세요.', 'info');
-              return;
-            }
-            const aiDataUrl = result.aiData || result.data;
-            if (!aiDataUrl || aiDataUrl === 'PDF_FILE') return;
-            if (dropzone) dropzone.classList.add('upload-dropzone--analyzing');
-            const aiResult = await analyzeReceiptWithGemini(aiDataUrl);
-            if (!form.isConnected || _pendingImageData !== result.data || !_pendingCloudAttachmentChanged) return;
-            if (aiResult.success) {
-              fillFormWithAIData(aiResult.data);
-              App.showToast('AI가 영수증을 인식했습니다.', 'success');
-            } else {
-              App.showToast('OCR에 실패했습니다. 첨부는 유지됩니다. 내용을 직접 입력해주세요.', 'warning');
-            }
-          } catch {
-            if (form.isConnected) App.showToast('OCR을 처리하지 못했습니다. 첨부는 유지됩니다. 내용을 직접 입력해주세요.', 'warning');
-          } finally {
-            if (dropzone) dropzone.classList.remove('upload-dropzone--analyzing');
-          }
-          return;
-        }
-        App.showToast('파일이 첨부되었습니다. AI 분석 중...', 'info');
-
-        // === AI Receipt Recognition ===
-        const aiDataUrl = result.aiData || result.data; // PDF uses aiData, images use data
-        if (aiDataUrl && aiDataUrl !== 'PDF_FILE') {
-          // Show loading state on dropzone
-          if (dropzone) dropzone.classList.add('upload-dropzone--analyzing');
-          if (previewName) previewName.textContent = result.name + ' 🔍 AI 분석 중...';
-
-          const aiResult = await analyzeReceiptWithGemini(aiDataUrl);
-          if (!form.isConnected) return;
-
-          if (dropzone) dropzone.classList.remove('upload-dropzone--analyzing');
-          if (previewName) previewName.textContent = result.name;
-
-          if (aiResult.success) {
-            fillFormWithAIData(aiResult.data);
-            App.showToast('✨ AI가 영수증을 성공적으로 인식했습니다!', 'success');
-          } else if (aiResult.error === 'API_KEY_MISSING') {
-            App.showToast('🔑 AI 인식을 사용하려면 설정 페이지에서 Gemini API 키를 입력하세요.', 'warning');
-          } else {
-            App.showToast(`AI 분석 실패: ${aiResult.error}`, 'error');
-          }
-        }
+        pendingAI = result.aiData || result.data;
+        document.getElementById('ai-consent').hidden = false;
+        document.getElementById('btn-run-ai').disabled = false;
+        App.showToast('파일 미리보기가 준비되었습니다. 수동 입력하거나 AI 인식을 직접 실행하세요.', 'info');
       } catch (err) {
         App.showToast('파일 처리 중 오류가 발생했습니다.', 'error');
       }
     }
+
+    const runAI = document.getElementById('btn-run-ai');
+    const cancelAI = document.getElementById('btn-cancel-ai');
+    runAI.addEventListener('click', async () => {
+      if (!pendingAI || runAI.disabled) return;
+      if (!getDeviceGeminiApiKey()) { App.showToast('설정에서 API 키를 입력한 뒤 실행해주세요. 수동 입력도 가능합니다.', 'warning'); return; }
+      if (!confirm('이 파일 전체 내용을 Google Gemini로 전송합니다. 개인정보를 제거했는지 확인하셨습니까?')) return;
+      const controller = new AbortController(); requests.add(controller);
+      const page = pageVersion, ticket = selectionVersion, data = pendingAI;
+      runAI.disabled = true;
+      try {
+        const result = await analyzeReceiptWithGemini(data, controller.signal);
+        if (controller.signal.aborted || page !== pageVersion || ticket !== selectionVersion || !form.isConnected) return;
+        if (result.success) { fillFormWithAIData(result.data); App.showToast('AI 인식 결과를 확인한 뒤 저장해주세요.', 'success'); }
+        else App.showToast('AI 인식 실패: ' + result.error + ' · 수동 입력할 수 있습니다.', 'warning');
+      } finally { requests.delete(controller); if (runAI.isConnected) runAI.disabled = false; }
+    });
+    cancelAI.addEventListener('click', () => {
+      stopAI(); selectionVersion++; pendingAI = null;
+      document.getElementById('ai-consent').hidden = true;
+      App.showToast('AI 인식을 취소했습니다. 첨부와 수동 입력은 유지됩니다.', 'info');
+    });
 
     // Existing image thumbnail click
     const existingThumb = document.getElementById('existing-image-thumb');
@@ -741,9 +739,10 @@ const Pages = (() => {
     }
   }
 
-  let receiptSaving = false;
+  let receiptSaving = null;
   async function saveReceipt(continueAdding) {
-    if (receiptSaving) return;
+    if (receiptSaving?.session === Storage.sessionVersion()) return;
+    const session = Storage.sessionVersion();
     const form = document.getElementById('receipt-form');
     const cloud = Storage.isCloudView();
     const idField = document.getElementById('receipt-id');
@@ -775,7 +774,7 @@ const Pages = (() => {
       : null;
     let attachmentUid = null;
     function saveAttachmentAfterSuccess(saved) {
-      if (!attachment || !saved?.id || !attachmentUid) return;
+      if (!form.isConnected || session !== Storage.sessionVersion() || !attachment || !saved?.id || !attachmentUid) return;
       try {
         Storage.saveCloudAttachment(attachmentUid, saved.id, attachment);
       } catch {
@@ -789,7 +788,8 @@ const Pages = (() => {
       data.imageName = _pendingImageName;
     }
 
-    receiptSaving = true;
+    const saveToken = { session };
+    receiptSaving = saveToken;
     const buttons = form.querySelectorAll('button');
     buttons.forEach(button => { button.disabled = true; });
     try {
@@ -837,7 +837,7 @@ const Pages = (() => {
     } catch (error) {
       if (form.isConnected) App.showToast(cloud ? '클라우드 저장 실패: 연결/권한을 확인해주세요. 다른 기기에서 변경했다면 클라우드 자료를 다시 읽어주세요.' : '로컬 저장을 완료하지 못했습니다.', 'error');
     } finally {
-      receiptSaving = false;
+      if (receiptSaving === saveToken) receiptSaving = null;
       buttons.forEach(button => { button.disabled = false; });
     }
   }
@@ -1105,7 +1105,7 @@ const Pages = (() => {
         <div class="settings-section">
           <div class="card" style="border:1px solid rgba(16,185,129,0.2); background: rgba(16,185,129,0.03);">
             <h2 class="settings-section__title">🔒 로컬 데이터 보관 안내</h2>
-            <p class="settings-section__description">영수증 및 지출내역은 기본적으로 이 브라우저에 저장됩니다. AI 영수증 인식 기능을 사용할 경우 선택한 영수증 데이터가 Google Gemini API로 전송됩니다.<br>브라우저 영구 보관 보호 모드가 적용되어 장기간 미접속하더라도 데이터가 자동 삭제되지 않도록 안전하게 유지됩니다.</p>
+            <p class="settings-section__description">영수증 및 지출내역은 기본적으로 이 브라우저에 저장됩니다. AI 영수증 인식 기능을 사용할 경우 선택한 영수증 데이터가 Google Gemini API로 전송됩니다.<br>브라우저 저장소는 사용 환경에 따라 삭제될 수 있으니 JSON 백업을 보관하세요. 로그인한 계정의 기기 자료는 로그아웃 시 삭제됩니다.</p>
           </div>
         </div>
 
@@ -1113,14 +1113,15 @@ const Pages = (() => {
         <div class="settings-section">
           <div class="card" style="border:1px solid rgba(124,91,240,0.2);">
             <h2 class="settings-section__title">🤖 AI 영수증 인식 설정</h2>
-            <p class="settings-section__description">Google Gemini API 키를 입력하면 영수증 이미지를 업로드할 때 자동으로 날짜, 금액, 품목, 사용처를 인식합니다.</p>
+            <p class="settings-section__description">Google Gemini API 키를 입력하면 파일 미리보기 후 AI 인식 실행을 선택하면 날짜, 금액, 품목, 사용처를 인식합니다.</p>
 
             <div class="form-group">
               <label class="form-label" for="setting-gemini-key">Gemini API Key</label>
               <input type="password" id="setting-gemini-key" class="form-input" placeholder="AIzaSy..." value="${settings.geminiApiKey || ''}">
-              <p class="form-hint">💡 <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--color-primary);text-decoration:underline;">Google AI Studio</a>에서 무료로 API 키를 발급받을 수 있습니다. API 키는 이 브라우저에 저장되며, AI 영수증 인식 기능 사용 시 Gemini API 요청에 사용됩니다..</p>
+              <p class="form-hint">💡 <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--color-primary);text-decoration:underline;">Google AI Studio</a>에서 무료로 API 키를 발급받을 수 있습니다. 키는 기본적으로 현재 탭 메모리에서만 사용합니다. 영수증 AI 실행과 키 테스트 때 Google로 전송됩니다. 보관을 선택하면 현재 자료 영역의 브라우저 저장소에도 평문 저장되며, 로그아웃 시 해당 계정의 키를 삭제합니다.</p>
             </div>
 
+            <label class="form-hint"><input type="checkbox" id="remember-api-key" ${Storage.isKeyRemembered() ? 'checked' : ''}> 이 기기에 키 보관 (개인 PC에서만)</label>
             <div style="display:flex;gap:var(--space-sm);align-items:center;">
               <button type="button" class="btn btn--primary btn--sm" id="btn-save-apikey">💾 키 저장</button>
               <button type="button" class="btn btn--secondary btn--sm" id="btn-test-apikey">🧪 테스트</button>
@@ -1266,13 +1267,10 @@ const Pages = (() => {
     if (btnSaveKey) {
       btnSaveKey.addEventListener('click', () => {
         const key = document.getElementById('setting-gemini-key').value.trim();
-        const current = Storage.getSettings();
-        Storage.saveSettings({ ...current, geminiApiKey: key });
-        // 클라우드/로컬 환경 모두 브라우저에 안전하게 즉시 동기화
-        if (typeof Storage.saveDeviceGeminiApiKey === 'function') {
-          Storage.saveDeviceGeminiApiKey(key);
-        }
-        App.showToast(key ? 'API 키가 안전하게 저장되었습니다.' : 'API 키가 삭제되었습니다.', 'success');
+        try {
+          Storage.saveDeviceGeminiApiKey(key, document.getElementById('remember-api-key').checked);
+          App.showToast(key ? 'API 키가 적용되었습니다.' : 'API 키가 삭제되었습니다.', 'success');
+        } catch { App.showToast('키 보관 설정에 실패했습니다. 브라우저 저장 권한을 확인해주세요.', 'error'); }
       });
     }
 
@@ -1290,6 +1288,7 @@ const Pages = (() => {
           statusEl.style.color = 'var(--color-text-muted)';
         }
         btnTestKey.disabled = true;
+        const page = pageVersion;
 
         // 신규 발급 키 공식 지원 최신 경량 모델(3.5-flash-lite) 및 하위 호환 모델 순차 테스트
         const modelsToTry = [
@@ -1302,9 +1301,11 @@ const Pages = (() => {
         let success = false;
 
         for (const model of modelsToTry) {
+          if (page !== pageVersion) return;
+          let controller, timeoutId;
           try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000); // 8초 타임아웃
+            controller = new AbortController(); requests.add(controller);
+            timeoutId = setTimeout(() => controller.abort(), 8000); // 8초 타임아웃
 
             const res = await fetch(
               `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
@@ -1317,6 +1318,7 @@ const Pages = (() => {
             );
             clearTimeout(timeoutId);
 
+            if (page !== pageVersion) return;
             if (res.ok) {
               if (statusEl) {
                 statusEl.textContent = `✅ 연결 성공! (${model})`;
@@ -1330,8 +1332,9 @@ const Pages = (() => {
               lastError = errData?.error?.message || res.statusText;
             }
           } catch (err) {
+            if (page !== pageVersion) return;
             lastError = err.name === 'AbortError' ? '요청 시간 초과(8초)' : err.message;
-          }
+          } finally { clearTimeout(timeoutId); requests.delete(controller); }
         }
 
         if (!success) {
@@ -1363,6 +1366,7 @@ const Pages = (() => {
   }
 
   return {
+    resetSensitiveState,
     renderDashboard,
     initDashboard,
     renderAddReceipt,

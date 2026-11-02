@@ -138,6 +138,9 @@ test('synthetic PDF upload with mocked Gemini fills form safely without real API
   const fileInput=input || a.w.document.querySelector('input[type=file]');
   Object.defineProperty(fileInput,'files',{value:[new a.w.File(['synthetic PDF fixture only'],'synthetic.pdf',{type:'application/pdf'})]});
   fileInput.dispatchEvent(new a.w.Event('change'));
+  for(let i=0;i<30 && a.w.document.getElementById('ai-consent').hidden;i++) await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(calls,0);
+  a.w.document.getElementById('btn-run-ai').click();
   for(let i=0;i<30 && a.w.document.getElementById('receipt-item').value!==payload;i++) await new Promise(resolve=>setTimeout(resolve,10));
   assert.equal(calls,1); assert.equal(a.w.document.getElementById('receipt-item').value,payload);
   assert.equal(a.w.document.getElementById('receipt-amount').value,'32100');

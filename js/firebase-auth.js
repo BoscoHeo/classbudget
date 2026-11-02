@@ -64,17 +64,27 @@ async function initializeAuthentication() {
       uid.textContent = user ? user.uid : '';
     }
 
-    // Firebase persists only its own authentication session; legacy application
-    // receipts/settings and the Gemini key are never read or written here.
+    // Account transitions clear only that account's device scope; legacy local data stays separate.
     await authSdk.setPersistence(auth, authSdk.browserLocalPersistence);
     authSdk.onAuthStateChanged(auth, user => {
       ready = true;
+      Pages.resetSensitiveState(true);
+      const previousSession = Storage.sessionVersion();
+      try { Storage.switchAccount(user?.uid); }
+      catch {
+        renderAccount(null); renderMigration(null); void readCloud(null);
+        status.textContent = '기기 자료 정리에 실패했습니다. 공용 PC 사용을 마치기 전에 브라우저 사이트 데이터를 삭제해주세요.';
+        document.getElementById('app').replaceChildren(); return;
+      }
+      if (previousSession !== Storage.sessionVersion()) window.history.replaceState(null, '', '#/');
       renderAccount(user);
       renderMigration(user);
       void readCloud(user);
       status.textContent = user ? '로그인되었습니다. 최초 이전은 버튼을 눌러 확인한 경우에만 실행됩니다.' : '로그아웃 상태입니다. 기존 로컬 기능을 사용할 수 있습니다.';
     }, error => {
       ready = false;
+      Pages.resetSensitiveState(true);
+      try { Storage.switchAccount(null); } catch { document.getElementById('app').replaceChildren(); }
       renderAccount(null);
       renderMigration(null);
       void readCloud(null);
@@ -83,6 +93,7 @@ async function initializeAuthentication() {
 
     login.addEventListener('click', async () => {
       if (!ready || busy) return;
+      if (!confirm('로그인 중에는 계정별 기기 자료를 사용합니다. 기존 로컬 전용 자료는 자동으로 가져오지 않습니다. 이전하려면 먼저 JSON 백업을 받으세요. 계정의 기기 자료는 로그아웃 시 삭제되며 클라우드 문서는 유지됩니다. 계속할까요?')) return;
       busy = true;
       renderAccount(auth.currentUser);
       status.textContent = 'Google 로그인을 진행하고 있습니다.';
@@ -100,6 +111,7 @@ async function initializeAuthentication() {
       if (!ready || busy) return;
       busy = true;
       renderAccount(auth.currentUser);
+      if (!confirm('이 계정의 기기 영수증·설정·첨부·API 키를 삭제하고 로그아웃합니다. 클라우드 문서와 기존 로컬 전용 자료, 이미 내려받은 파일은 삭제하지 않습니다. 필요한 기기 자료는 먼저 JSON 백업하세요. 계속할까요?')) { busy = false; renderAccount(auth.currentUser); return; }
       status.textContent = '로그아웃하고 있습니다.';
       try {
         await authSdk.signOut(auth);

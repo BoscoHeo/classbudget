@@ -1,0 +1,239 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null
+        && request.auth.uid == uid;
+    }
+
+    function initialImport(uid) {
+      return !exists(
+        /databases/$(database)/documents/users/$(uid)/migrations/initial-local
+      )
+      && getAfter(
+        /databases/$(database)/documents/users/$(uid)/migrations/initial-local
+      ).data.status == 'complete';
+    }
+
+    function shortText(value, maximum) {
+      return value is string
+        && value.size() <= maximum;
+    }
+
+    function imported(uid) {
+      return get(
+        /databases/$(database)/documents/users/$(uid)/migrations/initial-local
+      ).data.status == 'complete';
+    }
+
+    // Candidate only: never deploy without existing-data review and approval.
+    function validDate(value) {
+      return value is string
+        && value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && validCalendar(value);
+    }
+
+    function validCalendar(value) {
+      let parts = value.split('-');
+      let y = int(parts[0]);
+      let m = int(parts[1]);
+      let d = int(parts[2]);
+      let leap = y % 400 == 0 || (y % 4 == 0 && y % 100 != 0);
+      let maximum = m == 2 ? (leap ? 29 : 28) : (m in [4, 6, 9, 11] ? 30 : 31);
+      return value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && y >= 1 && y <= 9999 && m >= 1 && m <= 12 && d >= 1 && d <= maximum;
+    }
+
+    function validGeneralSettings() {
+      return request.resource.data.keys().hasAll([
+        'budgetName',
+        'totalBudget',
+        'schoolName',
+        'teacherName',
+        'className'
+      ])
+      && request.resource.data.keys().hasOnly([
+        'budgetName',
+        'totalBudget',
+        'schoolName',
+        'teacherName',
+        'className'
+      ])
+      && request.resource.data.totalBudget is number
+      && request.resource.data.totalBudget >= 0
+      && request.resource.data.totalBudget <= 9007199254740991
+      && shortText(
+        request.resource.data.budgetName,
+        1000
+      )
+      && shortText(
+        request.resource.data.schoolName,
+        1000
+      )
+      && shortText(
+        request.resource.data.teacherName,
+        1000
+      )
+      && shortText(
+        request.resource.data.className,
+        1000
+      );
+    }
+
+    match /users/{uid}/receipts/{receiptId} {
+
+      allow read:
+        if isOwner(uid);
+
+      allow create, update:
+        if isOwner(uid)
+        && (
+          initialImport(uid)
+          || imported(uid)
+        )
+        && request.resource.data.keys().hasAll([
+          'id',
+          'date',
+          'amount',
+          'item',
+          'store',
+          'category',
+          'memo'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'id',
+          'date',
+          'amount',
+          'item',
+          'store',
+          'category',
+          'memo',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.id
+          == receiptId
+        && receiptId.matches(
+          '^[A-Za-z0-9_-]{1,128}$'
+        )
+        && request.resource.data.amount
+          is number
+        && request.resource.data.amount >= 0
+        && request.resource.data.amount <= 9007199254740991
+        && validDate(request.resource.data.date)
+        && request.resource.data.item is string
+        && request.resource.data.item.size() > 0
+        && request.resource.data.category in ['supplies', 'materials', 'experience', 'equipment', 'cleaning', 'event', 'food', 'other']
+        && shortText(
+          request.resource.data.date,
+          32
+        )
+        && shortText(
+          request.resource.data.item,
+          1000
+        )
+        && shortText(
+          request.resource.data.store,
+          1000
+        )
+        && shortText(
+          request.resource.data.category,
+          100
+        )
+        && shortText(
+          request.resource.data.memo,
+          10000
+        )
+        && shortText(
+          request.resource.data.get(
+            'createdAt',
+            ''
+          ),
+          64
+        )
+        && shortText(
+          request.resource.data.get(
+            'updatedAt',
+            ''
+          ),
+          64
+        );
+
+      allow delete:
+        if isOwner(uid)
+        && imported(uid);
+    }
+
+    match /users/{uid}/settings/general {
+
+      allow read:
+        if isOwner(uid);
+
+      allow create:
+        if isOwner(uid)
+        && initialImport(uid)
+        && validGeneralSettings();
+
+      allow update:
+        if isOwner(uid)
+        && imported(uid)
+        && validGeneralSettings();
+
+      allow delete:
+        if false;
+    }
+
+    match /users/{uid}/migrations/{migrationId} {
+
+      allow read:
+        if isOwner(uid);
+
+      allow create:
+        if isOwner(uid)
+        && migrationId
+          == 'initial-local'
+        && request.resource.data.keys().hasAll([
+          'status',
+          'receiptCount',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'status',
+          'receiptCount',
+          'createdAt'
+        ])
+        && request.resource.data.status
+          == 'complete'
+        && request.resource.data.receiptCount
+          is int
+        && request.resource.data.receiptCount
+          >= 0
+        && request.resource.data.receiptCount
+          <= 450
+        && request.resource.data.createdAt
+          == request.time
+        && !exists(
+          /databases/$(database)/documents/users/$(uid)/settings/general
+        )
+        && getAfter(
+          /databases/$(database)/documents/users/$(uid)/settings/general
+        ).data.keys().hasAll([
+          'budgetName',
+          'totalBudget',
+          'schoolName',
+          'teacherName',
+          'className'
+        ]);
+
+      allow update, delete:
+        if false;
+    }
+
+    match /{document=**} {
+      allow read, write:
+        if false;
+    }
+  }
+}

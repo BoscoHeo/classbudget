@@ -36,7 +36,7 @@
       <p id="account-status" role="status" aria-live="polite">로그인 기능을 준비하고 있습니다.</p>
       <p id="account-identity" hidden></p>
       <p id="account-uid-row" hidden>UID: <code id="account-uid"></code></p>
-      <small>로그인만으로 업로드하지 않습니다. 클라우드 모드의 영수증 등록·수정·삭제는 계정에 저장됩니다. 설정은 읽기 전용이며 로컬 자료와 합치지 않습니다. 로컬 변경은 자동 동기화되지 않습니다.</small>
+      <small>로그인만으로 업로드하지 않습니다. 클라우드 모드의 영수증 등록·수정·삭제는 계정에 저장됩니다. 일반 설정도 계정에 저장되며 로컬 자료와 합치지 않습니다. 로컬 변경은 자동 동기화되지 않습니다.</small>
     </div>
     <div class="account-panel__actions">
       <button type="button" class="btn btn--secondary" id="account-login" disabled>Google 로그인</button>
@@ -46,7 +46,7 @@
     <div class="migration-panel" id="migration-confirmation" hidden>
       <strong>이 계정으로 최초 이전할까요?</strong>
       <p id="migration-summary"></p>
-      <p>API Key와 이미지/PDF는 제외하고 텍스트 정보와 일반 설정만 복사합니다. 로컬 원본은 유지됩니다. 서버에 기존 자료가 있으면 중단합니다.</p>
+      <p>API Key와 이미지/PDF는 제외하고 텍스트 정보와 일반 설정만 복사합니다. 기기 원본은 유지되지만 계정의 기기 자료는 로그아웃 시 삭제됩니다. 서버에 기존 자료가 있으면 중단합니다.</p>
       <p>다른 기기 자료가 아닌 현재 기기의 자료인지 확인하세요. 이전 전 설정에서 JSON 백업을 권장합니다. 이번 단계는 최대 450건까지 지원합니다.</p>
       <button type="button" class="btn btn--primary" id="migration-confirm">확인 후 최초 이전</button>
       <button type="button" class="btn btn--secondary" id="migration-cancel">취소</button>
