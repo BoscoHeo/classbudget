@@ -5,12 +5,12 @@
 
 const Pages = (() => {
 
-  // Cloud strings are untrusted text; escape only at the HTML display boundary.
+  // Escape raw text in both local and cloud HTML templates.
   function displayRecord(data) {
-    if (!Storage.isCloudView()) return data;
-    const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
     return Object.fromEntries(Object.entries(data).map(([key, value]) => [key,
-      typeof value === 'string' ? value.replace(/[&<>"']/g, char => entities[char]) : value]));
+      key === 'imageData' ? (value === 'PDF_FILE' ? value : DataSafety.image(value)) :
+      (typeof value === 'string' ? DataSafety.escapeHTML(value) :
+        (typeof value === 'number' && Number.isFinite(value) ? value : ''))]));
   }
 
   // === Helpers ===
@@ -123,11 +123,11 @@ const Pages = (() => {
     overlay.innerHTML = `
       <div class="modal" style="max-width:700px;">
         <div class="modal__header">
-          <span class="modal__title">📷 ${imageName || '영수증 이미지'}</span>
+          <span class="modal__title">📷 ${DataSafety.escapeHTML(imageName || '영수증 이미지')}</span>
           <button class="modal__close" id="close-image-modal">&times;</button>
         </div>
         <div class="modal__body" style="padding:0;text-align:center;background:#f0f0f0;">
-          <img src="${imageData}" alt="영수증" style="max-width:100%;max-height:70vh;display:block;margin:0 auto;">
+          <img src="${DataSafety.image(imageData)}" alt="영수증" style="max-width:100%;max-height:70vh;display:block;margin:0 auto;">
         </div>
       </div>
     `;
@@ -230,11 +230,11 @@ const Pages = (() => {
         return {
           success: true,
           data: {
-            date: parsed.date || '',
-            amount: Number(parsed.amount) || 0,
-            item: parsed.item || '',
-            store: parsed.store || '',
-            category: parsed.category || 'other',
+            date: typeof parsed.date === 'string' ? parsed.date : '',
+            amount: (typeof parsed.amount === 'number' || typeof parsed.amount === 'string') && Number.isFinite(Number(parsed.amount)) ? Number(parsed.amount) : 0,
+            item: typeof parsed.item === 'string' ? parsed.item.slice(0, 10000) : '',
+            store: typeof parsed.store === 'string' ? parsed.store.slice(0, 10000) : '',
+            category: typeof parsed.category === 'string' ? parsed.category.slice(0, 10000) : 'other',
           }
         };
       } catch (err) {
@@ -761,7 +761,13 @@ const Pages = (() => {
       return;
     }
 
-    const data = { date, amount: Number(amount), item, store, category, memo };
+    let data;
+    try {
+      data = DataSafety.receipt({ date, amount: Number(amount), item, store, category, memo }, false);
+    } catch (error) {
+      App.showToast(error.message, 'error');
+      return;
+    }
 
     // Snapshot the selected attachment separately from the Firestore payload.
     const attachment = cloud && _pendingCloudAttachmentChanged && _pendingImageData

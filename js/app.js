@@ -299,12 +299,11 @@ const App = (() => {
     toast.className =
       `toast toast--${type}`;
 
-    toast.innerHTML =
-      `<span>${
-        icons[type] ||
-        icons.info
-      }</span>` +
-      `<span>${message}</span>`;
+    const icon = document.createElement('span');
+    icon.textContent = icons[type] || icons.info;
+    const label = document.createElement('span');
+    label.textContent = String(message ?? '');
+    toast.append(icon, label);
 
     container.appendChild(
       toast

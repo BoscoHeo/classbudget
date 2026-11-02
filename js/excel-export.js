@@ -67,10 +67,10 @@ const ExcelExport = (() => {
     csv += `\n`;
 
     // Summary info
-    csv += `"건명","${settings.budgetName || '학급운영비'}"\n`;
-    if (settings.schoolName) csv += `"학교명","${settings.schoolName}"\n`;
-    if (settings.className) csv += `"학급","${settings.className}"\n`;
-    if (settings.teacherName) csv += `"담당교사","${settings.teacherName}"\n`;
+    csv += `"건명",${DataSafety.csv(settings.budgetName || '학급운영비')}\n`;
+    if (settings.schoolName) csv += `"학교명",${DataSafety.csv(settings.schoolName)}\n`;
+    if (settings.className) csv += `"학급",${DataSafety.csv(settings.className)}\n`;
+    if (settings.teacherName) csv += `"담당교사",${DataSafety.csv(settings.teacherName)}\n`;
     csv += `"정산일","${formatDate(new Date().toISOString())}"\n`;
     csv += `\n`;
 
@@ -91,12 +91,12 @@ const ExcelExport = (() => {
       const row = [
         i + 1,
         `"${formatDate(r.date)}"`,
-        `"${(r.store || '').replace(/"/g, '""')}"`,
-        `"${(r.item || '').replace(/"/g, '""')}"`,
-        `"${getCategoryName(r.category)}"`,
-        `"${getProofType(r)}"`,
+        DataSafety.csv(r.store || ''),
+        DataSafety.csv(r.item || ''),
+        DataSafety.csv(getCategoryName(r.category)),
+        DataSafety.csv(getProofType(r)),
         `"${formatNumber(r.amount)}원"`,
-        `"${cleanMemo.replace(/"/g, '""')}"`,
+        DataSafety.csv(cleanMemo),
       ];
       csv += row.join(',') + '\n';
     });
@@ -112,8 +112,8 @@ const ExcelExport = (() => {
    * Generate and download NEIS settlement file
    */
   function downloadSettlement() {
-    const receipts = Storage.getReceipts();
-    const settings = Storage.getSettings();
+    const receipts = DataSafety.receipts(Storage.getReceipts());
+    const settings = DataSafety.settings(Storage.getSettings());
 
     if (receipts.length === 0) {
       return { success: false, error: '내보낼 영수증이 없습니다.' };
@@ -144,7 +144,7 @@ const ExcelExport = (() => {
    * - 사용금액: 콤마 없는 순수 숫자(Number) 타입
    */
   function downloadEdufineXLS() {
-    const receipts = Storage.getReceipts();
+    const receipts = DataSafety.receipts(Storage.getReceipts());
     if (receipts.length === 0) {
       return { success: false, error: '내보낼 영수증이 없습니다.' };
     }
@@ -165,7 +165,7 @@ const ExcelExport = (() => {
         const cleanMemo = getCleanMemo(r.memo);
         const memoStr = cleanMemo ? ` (${cleanMemo})` : '';
         const item = `${r.item || ''}${memoStr}`;
-        return [date, store, amount, proofType, item];
+        return [date, store, amount, proofType, item].map(value => typeof value === 'number' ? { t: 'n', v: value } : { t: 's', v: String(value) });
       });
 
       const worksheetData = [headers, ...rows];
@@ -224,19 +224,19 @@ const ExcelExport = (() => {
 
     sorted.forEach(r => {
       const date = formatDate(r.date);
-      const store = (r.store || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const store = DataSafety.escapeHTML(r.store || '');
       const amount = Number(r.amount) || 0;
       const proofType = getProofType(r);
       const cleanMemo = getCleanMemo(r.memo);
-      const item = (r.item || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const memo = cleanMemo ? ` (${cleanMemo.replace(/</g, '&lt;').replace(/>/g, '&gt;')})` : '';
+      const item = DataSafety.escapeHTML(r.item || '');
+      const memo = cleanMemo ? ` (${DataSafety.escapeHTML(cleanMemo)})` : '';
 
       html += `
 <tr>
 <td>${date}</td>
 <td>${store}</td>
 <td class="num">${amount}</td>
-<td>${proofType}</td>
+<td>${DataSafety.escapeHTML(proofType)}</td>
 <td>${item}${memo}</td>
 </tr>`;
     });
@@ -264,7 +264,7 @@ const ExcelExport = (() => {
    * Download simple receipt list as CSV
    */
   function downloadReceiptList() {
-    const receipts = Storage.getReceipts();
+    const receipts = DataSafety.receipts(Storage.getReceipts());
     if (receipts.length === 0) {
       return { success: false, error: '내보낼 영수증이 없습니다.' };
     }
@@ -278,12 +278,12 @@ const ExcelExport = (() => {
       csv += [
         i + 1,
         `"${formatDate(r.date)}"`,
-        `"${(r.store || '').replace(/"/g, '""')}"`,
-        `"${(r.item || '').replace(/"/g, '""')}"`,
-        `"${getCategoryName(r.category)}"`,
-        `"${getProofType(r)}"`,
+        DataSafety.csv(r.store || ''),
+        DataSafety.csv(r.item || ''),
+        DataSafety.csv(getCategoryName(r.category)),
+        DataSafety.csv(getProofType(r)),
         `"${formatNumber(r.amount)}"`,
-        `"${cleanMemo.replace(/"/g, '""')}"`,
+        DataSafety.csv(cleanMemo),
       ].join(',') + '\n';
     });
 
@@ -300,10 +300,17 @@ const ExcelExport = (() => {
     return { success: true, count: receipts.length };
   }
 
+  function safeDownload(download) {
+    return () => {
+      try { return download(); }
+      catch (error) { return { success: false, error: '내보내기를 완료하지 못했습니다. 날짜·금액·자료 형식을 확인해주세요.' }; }
+    };
+  }
+
   return {
-    downloadSettlement,
-    downloadEdufineXLS,
-    downloadReceiptList,
+    downloadSettlement: safeDownload(downloadSettlement),
+    downloadEdufineXLS: safeDownload(downloadEdufineXLS),
+    downloadReceiptList: safeDownload(downloadReceiptList),
     formatNumber,
     formatDate,
   };

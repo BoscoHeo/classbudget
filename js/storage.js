@@ -121,6 +121,7 @@ const Storage = (() => {
   }
 
   function addReceipt(receipt) {
+    receipt = DataSafety.receipt(receipt, false);
     if (cloudView) {
       return writeCloud('create', null, receipt);
     }
@@ -140,6 +141,7 @@ const Storage = (() => {
   }
 
   function updateReceipt(id, updates) {
+    updates = DataSafety.receipt(updates, false);
     if (cloudView) {
       return writeCloud('update', id, updates);
     }
@@ -343,41 +345,38 @@ const Storage = (() => {
   }
 
   function importData(jsonString) {
+    let data;
     try {
-      const data = JSON.parse(jsonString);
-
-      if (data.settings) {
-        const currentSettings =
-          getSettings();
-
-        const {
-          geminiApiKey,
-          ...importedSettings
-        } = data.settings;
-
-        saveSettings({
-          ...currentSettings,
-          ...importedSettings,
-          geminiApiKey:
-            currentSettings.geminiApiKey ||
-            '',
-        });
+      requireLocal();
+      data = DataSafety.backup(JSON.parse(jsonString));
+    } catch (error) {
+      return { success: false, error: error instanceof SyntaxError ? 'JSON 백업 파일을 읽을 수 없습니다. 파일 형식을 확인해주세요.' : error.message };
+    }
+    // Validate and serialize everything before touching either existing key.
+    let previousReceipts;
+    let wroteReceipts = false;
+    try {
+      previousReceipts = localStorage.getItem(KEYS.RECEIPTS);
+      const settingsJSON = data.settings === undefined ? null : JSON.stringify({
+        ...getSettings(), ...data.settings, geminiApiKey: getDeviceGeminiApiKey(),
+      });
+      const receiptsJSON = data.receipts === undefined ? null : JSON.stringify(data.receipts);
+      if (receiptsJSON !== null) {
+        localStorage.setItem(KEYS.RECEIPTS, receiptsJSON);
+        wroteReceipts = true;
       }
-
-      if (data.receipts) {
-        saveReceipts(data.receipts);
+      if (settingsJSON !== null) localStorage.setItem(KEYS.SETTINGS, settingsJSON);
+      return { success: true, count: data.receipts?.length || 0 };
+    } catch {
+      if (wroteReceipts) {
+        try {
+          if (previousReceipts === null) localStorage.removeItem(KEYS.RECEIPTS);
+          else localStorage.setItem(KEYS.RECEIPTS, previousReceipts);
+        } catch {
+          return { success: false, error: '복원과 원상 복구에 실패했습니다. 창을 닫지 말고 기존 백업을 보관해주세요.' };
+        }
       }
-
-      return {
-        success: true,
-        count:
-          (data.receipts || []).length,
-      };
-    } catch (e) {
-      return {
-        success: false,
-        error: e.message,
-      };
+      return { success: false, error: '저장 공간 또는 브라우저 권한 문제로 복원하지 못했습니다. 기존 자료는 유지됩니다.' };
     }
   }
 
