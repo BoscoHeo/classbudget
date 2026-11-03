@@ -49,8 +49,12 @@ const Pages = (() => {
 
   function getDeviceGeminiApiKey() { return Storage.getDeviceGeminiApiKey(); }
   let pendingAI = null, pageVersion = 0, selectionVersion = 0;
+  let activeAIRun = null;
   const requests = new Set();
-  function stopAI() { requests.forEach(controller => controller.abort()); requests.clear(); }
+  function stopAI() {
+    activeAIRun = null;
+    requests.forEach(controller => controller.abort()); requests.clear();
+  }
   function resetSensitiveState(clearNotifications = false) {
     stopAI(); pendingAI = null; pageVersion++; selectionVersion++;
     _pendingImageData = null; _pendingImageName = null; _pendingCloudAttachmentChanged = false;
@@ -703,18 +707,25 @@ const Pages = (() => {
     const runAI = document.getElementById('btn-run-ai');
     const cancelAI = document.getElementById('btn-cancel-ai');
     runAI.addEventListener('click', async () => {
-      if (!pendingAI || runAI.disabled) return;
+      if (!pendingAI || activeAIRun || runAI.disabled) return;
       if (!getDeviceGeminiApiKey()) { App.showToast('설정에서 API 키를 입력한 뒤 실행해주세요. 수동 입력도 가능합니다.', 'warning'); return; }
       if (!confirm('이 파일 전체 내용을 Google Gemini로 전송합니다. 개인정보를 제거했는지 확인하셨습니까?')) return;
       const controller = new AbortController(); requests.add(controller);
+      activeAIRun = controller;
       const page = pageVersion, ticket = selectionVersion, data = pendingAI;
       runAI.disabled = true;
       try {
         const result = await analyzeReceiptWithGemini(data, controller.signal);
-        if (controller.signal.aborted || page !== pageVersion || ticket !== selectionVersion || !form.isConnected) return;
+        if (activeAIRun !== controller || controller.signal.aborted || page !== pageVersion || ticket !== selectionVersion || !form.isConnected) return;
         if (result.success) { fillFormWithAIData(result.data); App.showToast('AI 인식 결과를 확인한 뒤 저장해주세요.', 'success'); }
         else App.showToast('AI 인식 실패: ' + result.error + ' · 수동 입력할 수 있습니다.', 'warning');
-      } finally { requests.delete(controller); if (runAI.isConnected) runAI.disabled = false; }
+      } finally {
+        requests.delete(controller);
+        if (activeAIRun === controller) {
+          activeAIRun = null;
+          if (runAI.isConnected) runAI.disabled = false;
+        }
+      }
     });
     cancelAI.addEventListener('click', () => {
       stopAI(); selectionVersion++; pendingAI = null;

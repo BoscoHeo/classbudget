@@ -13,6 +13,7 @@ node --test tests/sec2.test.cjs
 node tests/sec2-browser.cjs
 node --test tests/sec3b.test.cjs
 node tests/sec3b-browser.cjs
+node tests/sec4a-browser.cjs
 # Java 21+ and the cached Firestore Emulator JAR are required.
 # Set FIRESTORE_EMULATOR_JAR if it is not under ~/.cache/firebase/emulators/.
 node tests/sec3b-rules.cjs
@@ -32,3 +33,7 @@ SEC-3B uses the real application authentication/migration/cloud-reader modules
 with synthetic SDK modules to test login/logout, not actual Google accounts.
 Its Rules test starts only a `demo-` project on localhost and loads the separate
 candidate. It never reads credentials or writes to a production database.
+
+SEC-4A additionally verifies AI execution ownership, duplicate clicks (including
+an accidentally enabled button), cancellation/file-replacement races, explicit
+consent, error retry, logout and direct account switching with delayed responses.
